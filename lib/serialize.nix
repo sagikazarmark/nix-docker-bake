@@ -197,12 +197,14 @@ let
           groupOutputs = { };
         }
       ) groupNames;
+
+      vars = collectVariables afterGroups.target;
     in
     {
-      variable = collectVariables afterGroups.target;
       group = afterGroups.groupOutputs;
       target = afterGroups.target;
-    };
+    }
+    // (if vars == { } then { } else { variable = vars; });
 in
 {
   inherit serialize;

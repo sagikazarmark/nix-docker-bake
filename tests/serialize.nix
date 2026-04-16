@@ -109,6 +109,24 @@ let
   };
   varScope.modules.v = varModule;
   serialized9 = serialize varScope varModule;
+
+  # ---------- empty variable block omission ----------
+  noVarsModule = {
+    namespace = "novars";
+    targets = {
+      main = mkTarget {
+        context = ./.;
+        tags = [ "foo:\${CHANNEL}" ];
+        args = {
+          BAR = "literal";
+        };
+      };
+    };
+    groups = { };
+    vars = { };
+  };
+  noVarsScope.modules.novars = noVarsModule;
+  serialized10 = serialize noVarsScope noVarsModule;
 in
 {
   # ---------- minimal ----------
@@ -187,6 +205,12 @@ in
 
   testSerializeDoesNotInjectChannel = {
     expr = serialized9.variable ? CHANNEL;
+    expected = false;
+  };
+
+  # ---------- empty variable block omission ----------
+  testSerializeOmitsEmptyVariableBlock = {
+    expr = serialized10 ? variable;
     expected = false;
   };
 }
