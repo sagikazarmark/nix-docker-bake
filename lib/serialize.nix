@@ -18,7 +18,7 @@ let
       null
     else
       let
-        match = builtins.match "\\$\\{([A-Z0-9_]+)\\}" value;
+        match = builtins.match "\\$[{]([A-Z0-9_]+)[}]" value;
       in
       if match == null then null else builtins.head match;
 
