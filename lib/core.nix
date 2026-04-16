@@ -60,10 +60,10 @@
   #   context = lib.mkContext "kubeadm" ./images/control-plane;
   #   # → /nix/store/<hash>-kubeadm-control-plane-context
   mkContext =
-    prefix: path:
+    prefix: srcPath:
     builtins.path {
-      inherit path;
-      name = "${prefix}-${baseNameOf (toString path)}-context";
+      path = srcPath;
+      name = "${prefix}-${baseNameOf (toString srcPath)}-context";
     };
 
   # Validate a module's return shape. Throws with a clear message identifying
@@ -74,30 +74,30 @@
     let
       pathStr = toString modulePath;
       prefix = "checkModule: module at '${pathStr}'";
-      typeOf = v: if v == null then "null" else builtins.typeOf v;
+      typeName = v: if v == null then "null" else builtins.typeOf v;
     in
     if !builtins.isAttrs module then
-      throw "${prefix} did not return an attrset (got: ${typeOf module})"
+      throw "${prefix} did not return an attrset (got: ${typeName module})"
     else if !(module ? namespace) then
       throw "${prefix} is missing required attribute 'namespace'"
     else if !builtins.isString module.namespace then
-      throw "${prefix} has non-string 'namespace' (got: ${typeOf module.namespace})"
+      throw "${prefix} has non-string 'namespace' (got: ${typeName module.namespace})"
     else if module.namespace == "" then
       throw "${prefix} has empty 'namespace'"
     else if !(module ? targets) then
       throw "${prefix} is missing required attribute 'targets'"
     else if !builtins.isAttrs module.targets then
-      throw "${prefix} has non-attrset 'targets' (got: ${typeOf module.targets})"
+      throw "${prefix} has non-attrset 'targets' (got: ${typeName module.targets})"
     else if !(module ? groups) then
       throw "${prefix} is missing required attribute 'groups'"
     else if !builtins.isAttrs module.groups then
-      throw "${prefix} has non-attrset 'groups' (got: ${typeOf module.groups})"
+      throw "${prefix} has non-attrset 'groups' (got: ${typeName module.groups})"
     else if !(builtins.all builtins.isList (builtins.attrValues module.groups)) then
       throw "${prefix} has a non-list group value in 'groups'"
     else if !(module ? vars) then
       throw "${prefix} is missing required attribute 'vars'"
     else if !builtins.isAttrs module.vars then
-      throw "${prefix} has non-attrset 'vars' (got: ${typeOf module.vars})"
+      throw "${prefix} has non-attrset 'vars' (got: ${typeName module.vars})"
     else
       module;
 }

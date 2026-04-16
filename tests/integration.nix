@@ -12,7 +12,7 @@ let
     config = {
       defaultRoot = "docker-image://rootfs:ubuntu";
       platforms = [ "linux/amd64" ];
-      tag = path: "registry.example/${path}:\${CHANNEL}";
+      tag = name: "registry.example/${name}:\${CHANNEL}";
     };
     modules = {
       base = ./fixtures/integration/base/bake.nix;

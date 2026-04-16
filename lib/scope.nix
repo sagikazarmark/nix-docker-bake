@@ -34,22 +34,22 @@ let
 
             # callBake: auto-inject function arguments from the scope, allow overrides.
             callBake =
-              path: overrides:
+              modulePath: overrides:
               let
-                fn = import path;
+                fn = import modulePath;
                 autoArgs = builtins.intersectAttrs (builtins.functionArgs fn) self;
                 module = fn (autoArgs // overrides);
               in
-              core.checkModule path module;
+              core.checkModule modulePath module;
 
             # callBakeWithScope: fork the scope with an overlay before resolving.
             # Transitive callBake calls inside the resolved module see the overlay.
             callBakeWithScope =
-              path: overlay:
+              modulePath: overlay:
               let
                 forkedScope = nixLib.fix (nixLib.extends overlay scopeFn);
               in
-              forkedScope.lib.callBake path { };
+              forkedScope.lib.callBake modulePath { };
           };
         in
         config
@@ -63,7 +63,7 @@ let
           extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
         }
         // builtins.mapAttrs (
-          moduleName: path:
+          moduleName: modulePath:
           let
             # Per-module lib: mkContext is pre-applied with the module name
             # so authors write `lib.mkContext ./path` instead of
@@ -72,7 +72,7 @@ let
               mkContext = core.mkContext moduleName;
             };
           in
-          libFunctions.callBake path { lib = moduleLib; }
+          libFunctions.callBake modulePath { lib = moduleLib; }
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;

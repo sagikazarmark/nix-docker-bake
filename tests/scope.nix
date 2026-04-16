@@ -24,7 +24,7 @@ let
     config = {
       myConfigValue = "via-string";
     };
-    modules.test = builtins.toString scopeTestModuleFile;
+    modules.test = toString scopeTestModuleFile;
   };
 
   # callBakeWithScope propagation

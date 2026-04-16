@@ -20,9 +20,9 @@ let
       null
     else
       let
-        match = builtins.match "\\$[{]([A-Za-z_][A-Za-z0-9_]*)[}]" value;
+        m = builtins.match "\\$[{]([A-Za-z_][A-Za-z0-9_]*)[}]" value;
       in
-      if match == null then null else builtins.head match;
+      if m == null then null else builtins.head m;
 
   # Collect all variable names referenced in any target's args.
   collectVariables =
