@@ -20,9 +20,6 @@ in
   # Scope and bake file generation
   inherit (scope) mkScope mkBakeFile;
 
-  # Nix primitives
-  inherit (nixLib) fix extends;
-
   # Debugging helpers
   inherit (describe) describeScope;
 }

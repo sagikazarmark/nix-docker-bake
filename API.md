@@ -58,11 +58,6 @@ devScope = scope.extend (final: prev: { appVersion = "v2.0.0"; });
 # appVersion usages see v2.0.0
 ```
 
-## `fix`, `extends`
-
-Nix fixed-point and overlay primitives.
-Exposed for advanced use when constructing custom scopes or overlays outside of `mkScope`.
-
 ## `describeScope scope`
 
 Returns a formatted human-readable string summarizing a bake scope's modules, targets, and key properties.

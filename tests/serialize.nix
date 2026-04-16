@@ -99,6 +99,8 @@ let
         args = {
           FOO = "\${FOO}";
           BAR = "literal";
+          lower = "\${lower_var}";
+          mixed = "\${MixedCase}";
         };
       };
     };
@@ -110,11 +112,6 @@ let
 in
 {
   # ---------- minimal ----------
-  testSerializeInjectsChannelDefault = {
-    expr = serialized5.variable.CHANNEL.default;
-    expected = "dev";
-  };
-
   testSerializeEmitsTarget = {
     expr = serialized5.target ? main;
     expected = true;
@@ -178,8 +175,18 @@ in
     expected = false;
   };
 
-  testSerializeInjectsChannelVariable = {
-    expr = serialized9.variable ? CHANNEL;
+  testSerializeCollectsLowercaseVariable = {
+    expr = serialized9.variable ? lower_var;
     expected = true;
+  };
+
+  testSerializeCollectsMixedCaseVariable = {
+    expr = serialized9.variable ? MixedCase;
+    expected = true;
+  };
+
+  testSerializeDoesNotInjectChannel = {
+    expr = serialized9.variable ? CHANNEL;
+    expected = false;
   };
 }

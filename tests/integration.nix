@@ -130,9 +130,9 @@ in
     expected = { };
   };
 
-  testIntBaseChannelVariable = {
-    expr = baseSer.variable.CHANNEL.default;
-    expected = "dev";
+  testIntBaseNoInjectedChannelVariable = {
+    expr = baseSer.variable ? CHANNEL;
+    expected = false;
   };
 
   # ---------- Scenario 2: middle module — cross-module contexts ----------
@@ -264,11 +264,6 @@ in
   testIntExtendPreservesContext = {
     expr = builtins.match "/nix/store/.*base.*context" extBaseSer.target.main.context != null;
     expected = true;
-  };
-
-  testIntExtendPreservesChannel = {
-    expr = extBaseSer.variable.CHANNEL.default;
-    expected = "dev";
   };
 
   # ---------- Scenario 6: callBakeWithScope through mkBakeFile ----------

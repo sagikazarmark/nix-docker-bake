@@ -36,9 +36,4 @@ in
     expr = parsed.target.main.args.VAL;
     expected = "hello";
   };
-
-  testMkBakeFileContainsChannelVariable = {
-    expr = parsed.variable.CHANNEL.default;
-    expected = "dev";
-  };
 }

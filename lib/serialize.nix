@@ -12,13 +12,15 @@ let
       throw "serializeContext: unsupported type (got ${builtins.typeOf value})";
 
   # Match ^${NAME}$ in a string. Returns the variable name or null.
+  # Accepts HCL-style identifiers: letter or underscore, followed by letters,
+  # digits, or underscores (any case).
   extractVarName =
     value:
     if !builtins.isString value then
       null
     else
       let
-        match = builtins.match "\\$[{]([A-Z0-9_]+)[}]" value;
+        match = builtins.match "\\$[{]([A-Za-z_][A-Za-z0-9_]*)[}]" value;
       in
       if match == null then null else builtins.head match;
 
@@ -197,13 +199,7 @@ let
       ) groupNames;
     in
     {
-      variable = {
-        CHANNEL = {
-          default = "dev";
-          description = "The channel to build (and push) the image to";
-        };
-      }
-      // (collectVariables afterGroups.target);
+      variable = collectVariables afterGroups.target;
       group = afterGroups.groupOutputs;
       target = afterGroups.target;
     };

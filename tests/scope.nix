@@ -66,6 +66,36 @@ let
 
   # scope.extend
   extendedScope = scope1.extend (final: prev: { myConfigValue = "extended"; });
+
+  # callBake shallow isolation: overriding a config value when resolving one
+  # module must not affect sibling modules that read the same value.
+  sharedA = builtins.toFile "shallow-a.nix" ''
+    { lib, shared, ... }:
+    {
+      namespace = "a";
+      targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
+      groups = {};
+      vars = {};
+    }
+  '';
+  sharedB = builtins.toFile "shallow-b.nix" ''
+    { lib, shared, ... }:
+    {
+      namespace = "b";
+      targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
+      groups = {};
+      vars = {};
+    }
+  '';
+  shallowScope = mkScope {
+    config.shared = "base";
+    modules = {
+      a = sharedA;
+      b = sharedB;
+    };
+  };
+  # Re-resolve only `a` with an override.
+  aOverridden = shallowScope.lib.callBake sharedA { shared = "overridden"; };
 in
 {
   # ---------- mkScope ----------
@@ -137,5 +167,54 @@ in
   testScopeMkContextIsStorePath = {
     expr = builtins.match "/nix/store/.*" mkCtxScope.my-module._ctxStr != null;
     expected = true;
+  };
+
+  # ---------- reserved-name conflicts ----------
+
+  testMkScopeRejectsReservedNameLib = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.lib = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsReservedNameExtend = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.extend = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsReservedNameModules = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.modules = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  # ---------- callBake shallow isolation ----------
+
+  # The re-resolved module sees the override.
+  testCallBakeAppliesOverride = {
+    expr = aOverridden.targets.t.args.VAL;
+    expected = "overridden";
+  };
+
+  # The sibling module in the original scope is unaffected.
+  testCallBakeDoesNotAffectSibling = {
+    expr = shallowScope.b.targets.t.args.VAL;
+    expected = "base";
+  };
+
+  # The original scope's view of the overridden module is also unaffected.
+  testCallBakeDoesNotMutateOriginal = {
+    expr = shallowScope.a.targets.t.args.VAL;
+    expected = "base";
   };
 }
