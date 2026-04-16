@@ -96,7 +96,6 @@ in
     expected = [
       "group"
       "target"
-      "variable"
     ];
   };
 
@@ -131,7 +130,7 @@ in
   };
 
   testIntBaseNoInjectedChannelVariable = {
-    expr = baseSer.variable ? CHANNEL;
+    expr = (baseSer.variable or { }) ? CHANNEL;
     expected = false;
   };
 
