@@ -26,7 +26,7 @@ let
     modules.test = toString scopeTestModuleFile;
   };
 
-  # callBakeWithScope propagation
+  # lib.extend propagation
   aFile = builtins.toFile "cbws-a.nix" ''
     { lib, val, ... }:
     {
@@ -38,7 +38,7 @@ let
   bFile = builtins.toFile "cbws-b.nix" ''
     { lib, ... }:
     let
-      aOverridden = lib.callBakeWithScope "a" (final: prev: { val = "overridden"; });
+      aOverridden = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
@@ -61,18 +61,19 @@ let
     modules.my-module = ./fixtures/mkctx-mod.nix;
   };
 
-  # callBakeWithScope with mkContext: a forked module must still receive a
+  # lib.extend with mkContext: a forked module must still receive a
   # per-module-specialized lib.mkContext (not the unspecialized curried form).
   cwsMkCtxScope = mkScope {
     config.val = "default";
     modules.forkable = ./fixtures/forkable-mkctx-mod.nix;
   };
-  cwsMkCtxForked = cwsMkCtxScope.lib.callBakeWithScope "forkable" (
-    final: prev: { val = "overridden"; }
-  );
+  cwsMkCtxForked = (cwsMkCtxScope.lib.extend (final: prev: { val = "overridden"; })).modules.forkable;
 
   # scope.extend
   extendedScope = scope1.extend (final: prev: { myConfigValue = "extended"; });
+
+  # lib.extend
+  libExtendedScope = scope1.lib.extend (final: prev: { myConfigValue = "lib-extended"; });
 
   # callBake shallow isolation: overriding a config value when resolving one
   # module must not affect sibling modules that read the same value.
@@ -101,6 +102,34 @@ let
   };
   # Re-resolve only `a` with an override.
   aOverridden = shallowScope.lib.callBake sharedA { shared = "overridden"; };
+
+  scopeOverridden = scope1.override { myConfigValue = "overridden-via-override"; };
+
+  libOverrideAFile = builtins.toFile "libov-a.nix" ''
+    { lib, val, ... }:
+    {
+      namespace = "a";
+      targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
+      groups = {};
+    }
+  '';
+  libOverrideBFile = builtins.toFile "libov-b.nix" ''
+    { lib, ... }:
+    let
+      aOverridden = (lib.override { val = "via-lib-override"; }).modules.a;
+    in {
+      namespace = "b";
+      targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
+      groups = {};
+    }
+  '';
+  libOverrideScope = mkScope {
+    config.val = "default";
+    modules = {
+      a = libOverrideAFile;
+      b = libOverrideBFile;
+    };
+  };
 in
 {
   # ---------- mkScope ----------
@@ -120,6 +149,14 @@ in
     expected = true;
   };
 
+  # Witness-style assertion: confirms the back-ref points at a scope with the
+  # expected shape. Avoids structural `==` on cyclic attrsets (the back-ref
+  # creates a cycle between the scope and its modules).
+  testMkScopeModuleCarriesScopeBackref = {
+    expr = scope1.modules.test._scope.test.targets.main.args.VAL;
+    expected = "hello";
+  };
+
   # ---------- string-path modules ----------
 
   testMkScopeAcceptsStringPaths = {
@@ -132,44 +169,43 @@ in
     expected = "via-string";
   };
 
-  # ---------- callBakeWithScope propagation ----------
+  # ---------- lib.extend propagation ----------
 
-  # Base scope's a.t has val = "default"
-  testCallBakeWithScopeBaseValue = {
+  testLibExtendBaseValue = {
     expr = scope2.a.targets.t.args.VAL;
     expected = "default";
   };
 
-  # B resolves A via callBakeWithScope with val = "overridden". The context
-  # of B.t is the overridden A.t (not base scope's A.t).
-  testCallBakeWithScopePropagatesOverride = {
+  testLibExtendPropagatesOverrideViaModules = {
     expr = scope2.b.targets.t.contexts.root.args.VAL;
     expected = "overridden";
   };
 
-  # callBakeWithScope must specialize mkContext with the module's registry key,
-  # same as the default mapAttrs path. Without specialization, lib.mkContext
-  # returns a lambda and downstream serialization breaks.
-  testCallBakeWithScopeMkContextIsStorePath = {
+  testLibExtendMkContextIsStorePath = {
     expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxStr != null;
     expected = true;
   };
 
-  # Same guarantee for mkContextWith: the forked scope must pre-apply the
-  # registry key, otherwise `lib.mkContextWith { path = ...; }` inside the
-  # module would see mkContextWith as a lambda awaiting `prefix` and crash.
-  testCallBakeWithScopeMkContextWithIsStorePath = {
+  testLibExtendMkContextWithIsStorePath = {
     expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxWithStr != null;
     expected = true;
   };
 
-  testCallBakeWithScopeMkContextUsesRegistryKey = {
+  # Renamed from testCallBakeWithScopeMkContextUsesRegistryKey — the original
+  # asserted on args.VAL (i.e., overlay propagation into the forked module's
+  # args), not on the mkContext registry-key specialization. The store-path
+  # specialization is covered by the two *IsStorePath tests above.
+  testLibExtendPropagatesToForkedModuleArgs = {
     expr = cwsMkCtxForked.targets.t.args.VAL;
     expected = "overridden";
   };
 
-  testCallBakeWithScopeUnknownModuleThrows = {
-    expr = (builtins.tryEval (cwsMkCtxScope.lib.callBakeWithScope "nonexistent" (_: _: { }))).success;
+  testLibExtendUnknownModuleThrows = {
+    expr =
+      (builtins.tryEval (
+        (cwsMkCtxScope.lib.extend (_: _: { })).modules.nonexistent
+          or (throw "module 'nonexistent' not found in scope")
+      )).success;
     expected = false;
   };
 
@@ -244,6 +280,27 @@ in
     expected = false;
   };
 
+  testMkScopeRejectsReservedNameOverride = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.override = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  # ---------- lib.extend ----------
+
+  testLibExtendForksScope = {
+    expr = libExtendedScope.modules.test.targets.main.args.VAL;
+    expected = "lib-extended";
+  };
+
+  testLibExtendDoesNotMutateOriginalScope = {
+    expr = scope1.test.targets.main.args.VAL;
+    expected = "hello";
+  };
+
   # ---------- callBake shallow isolation ----------
 
   # The re-resolved module sees the override.
@@ -262,5 +319,22 @@ in
   testCallBakeDoesNotMutateOriginal = {
     expr = shallowScope.a.targets.t.args.VAL;
     expected = "base";
+  };
+
+  # ---------- scope.override / lib.override sugar ----------
+
+  testScopeOverrideAppliesAttrs = {
+    expr = scopeOverridden.test.targets.main.args.VAL;
+    expected = "overridden-via-override";
+  };
+
+  testScopeOverrideDoesNotMutateOriginal = {
+    expr = scope1.test.targets.main.args.VAL;
+    expected = "hello";
+  };
+
+  testLibOverridePropagates = {
+    expr = libOverrideScope.b.targets.t.contexts.root.args.VAL;
+    expected = "via-lib-override";
   };
 }

@@ -23,13 +23,7 @@ let
   };
 
   # Full round-trip through mkBakeFile: serialize → JSON file → parse.
-  parse =
-    module:
-    builtins.fromJSON (
-      builtins.readFile (mkBakeFile {
-        inherit scope module;
-      })
-    );
+  parse = moduleName: builtins.fromJSON (builtins.readFile (mkBakeFile scope.modules.${moduleName}));
 
   baseSer = parse "base";
   middleSer = parse "middle";
@@ -38,14 +32,9 @@ let
 
   # Extended scope for override tests.
   extendedScope = scope.extend (final: prev: { platforms = [ "linux/arm64" ]; });
-  extBaseSer = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = extendedScope;
-      module = "base";
-    })
-  );
+  extBaseSer = builtins.fromJSON (builtins.readFile (mkBakeFile extendedScope.modules.base));
 
-  # callBakeWithScope: inline modules (builtins.toFile) since they don't need mkContext.
+  # lib.extend: inline modules (builtins.toFile) since they don't need mkContext.
   # These CAN go through mkBakeFile because bare paths don't trigger the toFile restriction.
   cwsAFile = builtins.toFile "cws-a.nix" ''
     { lib, val, ... }:
@@ -57,7 +46,7 @@ let
   '';
   cwsBFile = builtins.toFile "cws-b.nix" ''
     { lib, ... }:
-    let a = lib.callBakeWithScope "a" (final: prev: { val = "overridden"; });
+    let a = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = a.targets.t; }; };
@@ -73,18 +62,8 @@ let
       b = cwsBFile;
     };
   };
-  cwsAParsed = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = cwsScope;
-      module = "a";
-    })
-  );
-  cwsBParsed = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = cwsScope;
-      module = "b";
-    })
-  );
+  cwsAParsed = builtins.fromJSON (builtins.readFile (mkBakeFile cwsScope.modules.a));
+  cwsBParsed = builtins.fromJSON (builtins.readFile (mkBakeFile cwsScope.modules.b));
 in
 {
   # ---------- Scenario 1: base module — single-module full round-trip ----------
@@ -252,7 +231,7 @@ in
     expected = true;
   };
 
-  # ---------- Scenario 6: callBakeWithScope through mkBakeFile ----------
+  # ---------- Scenario 6: lib.extend through mkBakeFile ----------
 
   # The overridden a.t is a different attrset than scope.modules.a.targets.t,
   # so the identity lookup produces a synthetic name (t__root), not a_t.

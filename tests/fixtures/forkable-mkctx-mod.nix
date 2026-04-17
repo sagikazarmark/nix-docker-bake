@@ -1,4 +1,4 @@
-# Test module used to verify that callBakeWithScope specializes both
+# Test module used to verify that lib.extend specializes both
 # lib.mkContext and lib.mkContextWith the same way the default resolution path
 # does. Consumes `val` from scope so an overlay can observe the overridden
 # value propagating through.

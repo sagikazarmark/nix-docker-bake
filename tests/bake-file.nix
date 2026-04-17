@@ -18,10 +18,7 @@ let
     modules.test = moduleFile;
   };
 
-  bakeFilePath = mkBakeFile {
-    inherit scope;
-    module = "test";
-  };
+  bakeFilePath = mkBakeFile scope.modules.test;
 
   parsed = builtins.fromJSON (builtins.readFile bakeFilePath);
 in

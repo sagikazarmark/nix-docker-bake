@@ -70,25 +70,81 @@ Called internally by `mkScope` after each module is resolved; exposed for consum
 
 The main entry point.
 Takes a `config` attrset and an attrset of `name -> path` module references (where path may be a Nix path or a string), builds a fixed-point scope, and validates each resolved module.
-Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `modules`).
+Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `override`, `modules`).
 
-## `mkBakeFile { scope, module }`
+## `mkBakeFile module`
 
-Serializes the named module's target graph and writes it via `builtins.toFile`.
+Serializes a module's target graph and writes it via `builtins.toFile`.
 Returns a Nix store path directly usable with `docker buildx bake -f`.
-The `module` argument must be a key present in `scope.modules`.
+The argument is a resolved module value (typically obtained from `scope.modules.<name>` or from `scope.<name>`).
+The module carries a hidden back-reference to its originating scope, which the serializer uses to resolve cross-module target identities.
+
+```nix
+bakeFile = bake.lib.mkBakeFile scope.modules.hello;
+```
 
 ## `scope.extend overlay`
 
 Method on the scope returned by `mkScope`.
-Produces a new scope with the given overlay applied.
-Use this to layer persistent customizations (e.g., "a dev scope with a newer app version") instead of forking per-module via `callBakeWithScope`.
-The original scope is unaffected.
+Produces a new scope with the given overlay applied; the original scope is unaffected.
+The overlay has the standard nixpkgs shape `final: prev: { ... }`.
+
+Use this to layer persistent customizations for a subtree of consumer code (e.g., "a dev scope with a newer app version") rather than forking per-module from within another module.
 
 ```nix
 devScope = scope.extend (final: prev: { appVersion = "v2.0.0"; });
-# devScope.bakeFiles are equivalent to scope.bakeFiles but all transitive
-# appVersion usages see v2.0.0
+devBakeFile = bake.lib.mkBakeFile devScope.modules.app;
+```
+
+## `scope.override attrs`
+
+Plain-attrs sugar for the common case of `scope.extend (_: _: attrs)`.
+Reach for `override` when you are replacing config values; use `extend` when you need the `final: prev: ...` form (e.g., self-referential rewrites).
+
+```nix
+devScope = scope.override { appVersion = "v2.0.0"; };
+```
+
+## `lib.callBake path overrides`
+
+Available on the per-module `lib` injected into modules resolved by `mkScope`.
+Resolves the module at `path` with its function arguments auto-injected from the scope, and applies `overrides` as a per-call replacement attrset.
+Returns the resolved module value (same shape as `scope.modules.<name>`).
+
+Use this when you want to re-resolve a single module with a different argument — siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead.
+
+```nix
+# Inside a bake module
+{ lib, ... }:
+let
+  devApp = lib.callBake ./app/bake.nix { appVersion = "v2.0.0"; };
+in { ... }
+```
+
+## `lib.extend overlay`
+
+Available on the per-module `lib` injected into modules resolved by `mkScope`.
+Forks the enclosing scope with the given overlay and returns the forked scope; access modules via `.modules.<name>`.
+Every transitive dependency re-resolves with the overlay applied.
+
+```nix
+# Inside a bake module
+{ lib, ... }:
+let
+  kubeadm = (lib.extend (final: prev: { kubeVersion = "v1.35.0"; })).modules.kubeadm;
+in { ... }
+```
+
+## `lib.override attrs`
+
+Plain-attrs sugar over `lib.extend`, mirroring `scope.override`.
+
+```nix
+# Inside a bake module
+{ lib, ... }:
+let
+  kubeadm = (lib.override { kubeVersion = "v1.35.0"; }).modules.kubeadm;
+in { ... }
 ```
 
 ## `describeScope scope`

@@ -17,6 +17,7 @@ let
       reservedNames = [
         "lib"
         "extend"
+        "override"
         "modules"
       ];
       conflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
@@ -28,6 +29,17 @@ let
       scopeFn =
         self:
         let
+          # Fork the scope with an overlay and return the forked scope.
+          # Consumers typically access `.modules.<name>` on the result to
+          # pull in a specific module resolved under the fork. Transitive
+          # callBake calls inside the resolved module see the overlay.
+          extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+
+          # Plain-attrs sugar over extend. Use this when you just want to
+          # replace config values; reach for extend when you need the
+          # (final: prev: ...) form (e.g., self-referential rewrites).
+          override = attrs: extend (_: _: attrs);
+
           libFunctions = {
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
@@ -42,26 +54,7 @@ let
               in
               core.checkModule modulePath module;
 
-            # callBakeWithScope: fork the scope with an overlay and re-resolve
-            # a registered module under the fork. Transitive callBake calls
-            # inside the resolved module see the overlay. The module name is
-            # used both to look up the path and to specialize mkContext, so
-            # the forked module gets the same per-module lib as the default
-            # resolution path.
-            callBakeWithScope =
-              moduleName: overlay:
-              let
-                available = builtins.concatStringsSep ", " (builtins.attrNames modules);
-                modulePath =
-                  modules.${moduleName}
-                    or (throw "callBakeWithScope: module '${moduleName}' not found in scope. Available modules: ${available}");
-                forkedScope = nixLib.fix (nixLib.extends overlay scopeFn);
-                moduleLib = forkedScope.lib // {
-                  mkContext = core.mkContext moduleName;
-                  mkContextWith = core.mkContextWith moduleName;
-                };
-              in
-              forkedScope.lib.callBake modulePath { lib = moduleLib; };
+            inherit extend override;
           };
         in
         config
@@ -69,10 +62,7 @@ let
           # Library functions namespaced under lib, mirroring nixpkgs conventions.
           lib = libFunctions;
 
-          # Return a new scope with the given overlay applied.
-          # Use this to persistently extend the scope for a subtree of your code
-          # rather than forking per-module via callBakeWithScope.
-          extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+          inherit extend override;
         }
         // builtins.mapAttrs (
           moduleName: modulePath:
@@ -84,8 +74,11 @@ let
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
             };
+            resolved = libFunctions.callBake modulePath { lib = moduleLib; };
           in
-          libFunctions.callBake modulePath { lib = moduleLib; }
+          # _scope is attached AFTER callBake (which runs checkModule) so
+          # validation only sees consumer-authored keys. Do not reorder.
+          resolved // { _scope = self; }
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;
@@ -94,21 +87,21 @@ let
     nixLib.fix scopeFn;
 
   # Generate a docker-bake.json file as a Nix-store path.
-  # scope: the fully-resolved scope (output of mkScope)
-  # module: the name of the module to serialize (must be a key in scope.modules)
+  # Takes a resolved module value (from scope.modules.X or scope.X).
+  # The module carries a _scope back-reference so cross-module target
+  # identity resolution in the serializer has what it needs.
   #
   # builtins.unsafeDiscardStringContext is needed because builtins.toFile
   # cannot reference store paths produced by builtins.path (used by mkContext).
   # The context paths are already realized at eval time and Docker reads them
   # at runtime, so Nix dependency tracking on the bake file is not needed.
   mkBakeFile =
-    { scope, module }:
+    module:
     let
-      available = builtins.concatStringsSep ", " (builtins.attrNames scope.modules);
-      mod =
-        scope.modules.${module}
-          or (throw "mkBakeFile: module '${module}' not found in scope. Available modules: ${available}");
-      serialized = serialize.serialize scope mod;
+      scope =
+        module._scope
+          or (throw "mkBakeFile: module is missing _scope back-reference; was it produced by mkScope?");
+      serialized = serialize.serialize scope module;
     in
     builtins.toFile "docker-bake.json" (
       builtins.unsafeDiscardStringContext (builtins.toJSON serialized)
