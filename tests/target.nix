@@ -137,12 +137,27 @@ in
     expected = "bar";
   };
 
+  # `t // patch` preserves the `.overrideAttrs` carrier — it's still callable.
   testMkTargetRawUpdatePreservesOverrideAttrs = {
     expr =
       (t3.overrideAttrs (_: {
         tags = [ "x" ];
       })).tags;
     expected = [ "x" ];
+  };
+
+  # Gotcha: the preserved carrier's closure captured `t2` at construction,
+  # so modifications made by `t3 = t2 // { target = "ready"; }` are invisible
+  # to the override. The result inherits `t2`'s `target = "base"`, NOT `t3`'s
+  # `target = "ready"`. This matches nixpkgs's derivation/overrideAttrs
+  # semantics — callers mixing `//` with `.overrideAttrs` should rebuild via
+  # `mkTarget` if they need the post-// state.
+  testMkTargetOverrideAttrsOnRawUpdateSeesPreUpdateState = {
+    expr =
+      (t3.overrideAttrs (_: {
+        tags = [ "x" ];
+      })).target;
+    expected = "base";
   };
 
   testMkTargetRejectsUnknownKeys = {
