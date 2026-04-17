@@ -4,16 +4,16 @@
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/sagikazarmark/nix-docker-bake/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/sagikazarmark/nix-docker-bake)
 [![built with nix](https://img.shields.io/badge/builtwith-nix-7d81f7?style=flat-square)](https://builtwithnix.org)
 
-Compose `docker-bake.json` files with Nix — describe [Docker Bake](https://docs.docker.com/build/bake/) targets as plain Nix functions instead of HCL.
+Compose `docker-bake.json` files with Nix: describe [Docker Bake](https://docs.docker.com/build/bake/) targets as plain Nix functions instead of HCL.
 
 ## Features
 
-- 🧩 **Composable** — Modules are plain functions that reference each other via arguments, `callPackage`-style.
-- 📦 **Content-addressed contexts** — Build contexts import as isolated Nix store paths; unrelated repo changes don't bust Docker's cache.
-- 🎯 **Selective overrides** — Re-resolve a module with a different dep or config value without touching siblings.
-- 🔧 **Chainable target overrides** — `target.overrideAttrs` layers modifications without wholesale replacement.
-- ✅ **Shape-checked** — Unknown target attributes fail fast; every module is validated on resolution.
-- 🔌 **Extensible** — `passthru` attaches arbitrary wrapper-library data to modules and targets.
+- 🧩 **Composable**: Modules are plain functions that reference each other via arguments, `callPackage`-style.
+- 📦 **Content-addressed contexts**: Build contexts import as isolated Nix store paths; unrelated repo changes don't bust Docker's cache.
+- 🎯 **Selective overrides**: Re-resolve a module with a different dep or config value without touching siblings.
+- 🔧 **Chainable target overrides**: `target.overrideAttrs` layers modifications without wholesale replacement.
+- ✅ **Shape-checked**: Unknown target attributes fail fast; every module is validated on resolution.
+- 🔌 **Extensible**: `passthru` attaches arbitrary wrapper-library data to modules and targets.
 
 <details>
 <summary><strong>Why Nix instead of HCL?</strong></summary>
@@ -51,7 +51,7 @@ Add the library as a flake input:
 
 ## Examples
 
-### A target
+### Targets
 
 `mkTarget` is the basic building block. It constructs a single Docker Bake target attrset.
 
@@ -62,7 +62,7 @@ bake.lib.mkTarget {
 }
 ```
 
-### A module
+### Modules
 
 A module groups one or more targets under a namespace.
 Helpers arrive via an injected `lib` argument; `lib.mkContext` already has its prefix baked in, so the call site just passes the path.
@@ -82,7 +82,7 @@ in
 }
 ```
 
-### A bake file
+### Bake files
 
 `mkScope` wires modules together; `mkBakeFile` serializes one into a file that `docker buildx bake` can consume.
 
@@ -120,19 +120,18 @@ A realistic example with config values and a sibling dependency:
 
 ```nix
 # app/bake.nix
-{ lib, tag, appVersion, base, ... }:
+{ lib, appVersion, base, ... }:
 let
   main = lib.mkTarget {
     context = lib.mkContext ./.;
     contexts.base = base.targets.main;
     args = { APP_VERSION = appVersion; };
-    tags = [ (tag "app") ];
+    tags = [ "myorg/myapp" ];
   };
   debug = lib.mkTarget {
     context = lib.mkContext ./.;
     target = "debug";
     args = { APP_VERSION = appVersion; };
-    tags = [ (tag "app/debug") ];
   };
 in
 {
