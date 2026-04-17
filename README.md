@@ -12,8 +12,6 @@ Compose `docker-bake.json` files with Nix: describe [Docker Bake](https://docs.d
 - 📦 **Content-addressed contexts**: Build contexts import as isolated Nix store paths; unrelated repo changes don't bust Docker's cache.
 - 🎯 **Selective overrides**: Re-resolve a module with a different dep or config value without touching siblings.
 - 🔧 **Chainable target overrides**: `target.overrideAttrs` layers modifications without wholesale replacement.
-- ✅ **Shape-checked**: Unknown target attributes fail fast; every module is validated on resolution.
-- 🔌 **Extensible**: `passthru` attaches arbitrary wrapper-library data to modules and targets.
 
 <details>
 <summary><strong>Why Nix instead of HCL?</strong></summary>
@@ -49,23 +47,12 @@ Add the library as a flake input:
 }
 ```
 
-## Examples
-
-### Targets
-
-`mkTarget` is the basic building block. It constructs a single Docker Bake target attrset.
-
-```nix
-bake.lib.mkTarget {
-  context = bake.lib.mkContext "hello" ./.;
-  tags    = [ "ghcr.io/me/hello:latest" ];
-}
-```
+## Usage
 
 ### Modules
 
 A module groups a set of targets under a namespace.
-Helpers arrive via an injected `lib` argument; `lib.mkContext` already has its prefix baked in, so the call site just passes the path.
+`lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated build context.
 
 ```nix
 # hello.nix
@@ -82,30 +69,22 @@ in
 }
 ```
 
+See [Writing modules](#writing-modules) for the full shape and a realistic example with dependencies.
+
 ### Bake files
 
 `mkScope` wires modules together; `mkBakeFile` serializes one into a file that `docker buildx bake` can consume.
 
 ```nix
-# flake.nix
-{
-  inputs.bake.url = "github:sagikazarmark/nix-docker-bake";
-  inputs.bake.inputs.nixpkgs.follows = "nixpkgs";
-
-  outputs = { bake, ... }:
-    let
-      scope = bake.lib.mkScope {
-        config  = { };
-        modules = { hello = ./hello.nix; };
-      };
-    in
-    {
-      # Simplified for illustration — in a real flake you'd expose this under
-      # `packages.<system>.bakeFile` or similar.
-      bakeFile = bake.lib.mkBakeFile scope.modules.hello;
-    };
-}
+# inside flake.nix outputs
+scope = bake.lib.mkScope {
+  config  = { };
+  modules = { hello = ./hello.nix; };
+};
+bakeFile = bake.lib.mkBakeFile scope.modules.hello;
 ```
+
+Expose `bakeFile` as a flake output, build it, and hand the path to `docker buildx bake`:
 
 ```bash
 docker buildx bake -f "$(nix build --print-out-paths .#bakeFile)" main
@@ -128,7 +107,7 @@ A realistic example with config values and a sibling dependency:
 let
   main = lib.mkTarget {
     context = lib.mkContext ./.;
-    contexts.base = base.targets.main;
+    contexts.base = base.targets.main; # cross-module dep; wiring explained below
     args = { APP_VERSION = appVersion; };
     tags = [ "myorg/myapp" ];
   };
@@ -148,10 +127,15 @@ in
 }
 ```
 
+`contexts` is Docker Bake's attribute for declaring [named build contexts](https://docs.docker.com/build/bake/contexts/): extra inputs that a Dockerfile can reference via `FROM name` or `COPY --from=name`.
+Passing a target attrset as a `contexts.<name>` value (as with `contexts.base = base.targets.main` above) is how cross-module target dependencies are wired.
+The serializer translates the reference into a `target:<id>` entry in the bake file, which tells Docker Bake to build the upstream target first and make its output available to the downstream build.
+When the referenced target lives in another module, `<id>` is namespace-prefixed (see [Namespace vs registry key](#namespace-vs-registry-key)); within the same module it's bare.
+
 Groups map directly to Docker Bake's group concept:
 each key becomes a group you can invoke by name with `docker buildx bake <group>`, and its value is the list of targets built when the group is invoked.
 The list elements are target attrsets (not string names); the library resolves each into its serialized ID.
-Group names in the serialized output are not namespace-prefixed (unlike cross-module target IDs — see below).
+Group names in the serialized output are not namespace-prefixed (unlike cross-module target IDs; see [Namespace vs registry key](#namespace-vs-registry-key)).
 
 ### Namespace vs registry key
 
@@ -160,7 +144,7 @@ The registry key determines how sibling modules reference it via function args.
 The namespace determines how its targets are identified in the serialized output: bare `<target-name>` within the same module, `<namespace>_<target-name>` when referenced across modules.
 
 Convention: match them unless you have a specific reason not to.
-The library does not enforce equality, but divergence can be confusing.
+The library does not enforce equality, but diverging names can be confusing.
 
 ```nix
 scope = mkScope {
@@ -170,7 +154,7 @@ scope = mkScope {
 };
 # Inside app/bake.nix, module returns { namespace = "app"; ... }
 # Sibling modules do `{ app, ... }:` (using the key)
-# Serialized output refers to its targets as `app_main`, `app_debug` etc. (using the namespace)
+# Cross-module references use `app_main`, `app_debug` (namespace-prefixed); within the app module itself they stay bare.
 ```
 
 ## Overrides
@@ -180,14 +164,14 @@ Choose based on how far you want the change to propagate:
 
 | You want to... | Use |
 |---|---|
-| Override a dep in one module, leave siblings alone | `lib.callBake path { specificDep = ...; }` |
-| Replace a config value everywhere in the scope (plain attrs) | `(lib.override { key = ...; }).modules.<name>` |
-| Same, but with access to prior values / self-reference | `(lib.extend (final: prev: { key = ...; })).modules.<name>` |
+| Override a dep in one module, leave siblings alone | `lib.callBake path { dep = ...; }` |
+| Replace a config value everywhere in the scope | `(lib.override { key = ...; }).modules.<name>` |
+| Same, with access to prior values (overlay form) | `(lib.extend (final: prev: { key = ...; })).modules.<name>` |
 | Override a value in some transitive deps but not others | `lib.callBake path { ...; dep = lib.callBake ../dep.nix { ... }; }` (selective) |
 
 ### Shallow override (`callBake`)
 
-`callBake path overrides` resolves the module at `path` with dependencies auto-injected from the scope.
+`callBake path overrides` resolves the module at `path` with its function arguments auto-injected from the scope.
 Anything you pass in `overrides` replaces the corresponding scope value for that single resolution.
 Sibling modules, and the rest of the scope, are unaffected.
 
@@ -217,7 +201,7 @@ For the common case of replacing config values, use `lib.override` as sugar:
 customApp = (lib.override { appVersion = "v2.0.0"; }).modules.app;
 ```
 
-The same pair is available on the scope value itself — use `scope.extend` / `scope.override` when you have a scope in hand (typically in `flake.nix`, outside any module), and the `lib.*` forms when you are inside a module.
+The same pair is available on the scope value itself: use `scope.extend` / `scope.override` when you have a scope in hand (typically in `flake.nix`, outside any module), and the `lib.*` forms when you are inside a module.
 
 ### Selective propagation (the interesting case)
 
@@ -243,8 +227,10 @@ let
     appVersion = "v2.0.0";
     base = base';
   };
-in ...
+in app'
 ```
+
+`app'` is a resolved module value: use it as a dep of another module, reference its targets via `contexts.<name>`, or return it from the enclosing module.
 
 This pattern is verbose but explicit:
 the dependency chain is visible, and the cutoff point (where overrides stop propagating) is controlled by which deps you pass.
@@ -255,9 +241,10 @@ A module function must return an attrset with this shape:
 
 ```nix
 {
-  namespace = "string";       # required; used for cross-module target ID namespacing
-  targets   = { name = target; ... };              # optional; attrset of target attrsets
-  groups    = { name = [ target ... ]; ... };      # optional; each value is a list of target attrsets
+  namespace = "string";                       # required; used for cross-module target ID namespacing
+  targets   = { name = target; ... };         # optional; attrset of target attrsets
+  groups    = { name = [ target ... ]; ... }; # optional; each value is a list of target attrsets
+  passthru  = { ... };                        # optional; opaque consumer payload (see below)
 }
 ```
 
@@ -267,43 +254,25 @@ If the resulting target or group set is empty, the corresponding top-level key i
 
 ### Extending modules and targets with `passthru`
 
-Wrapper libraries built on top of nix-docker-bake often need to attach data to a module or target that isn't part of the bake shape — for example, a tag-management layer that wants to surface per-target push refs to non-bake consumers.
-
-`passthru` is the reserved attribute for this.
-Both modules and targets accept an optional `passthru` attrset.
-
-On a module:
+Wrapper libraries often need to attach data that isn't part of the bake shape (e.g., per-target push refs for non-bake consumers).
+Both modules and targets accept an optional `passthru` attrset, which the library ignores during serialization.
 
 ```nix
 {
   namespace = "app";
-  targets   = { inherit main; };
-  groups    = { default = [ main ]; };
-
-  passthru = {
-    pushRefs.main = "oci://ghcr.io/me/app:a1b2c3";
+  targets = {
+    main = lib.mkTarget {
+      context = lib.mkContext ./.;
+      tags    = [ "myorg/app" ];
+      passthru.pushRef = "oci://ghcr.io/me/app:a1b2c3";
+    };
   };
+  passthru.pushRefs.main = "oci://ghcr.io/me/app:a1b2c3";
 }
 ```
 
-On a target:
-
-```nix
-# Inside a module; `tag` here is a helper from an imagined wrapper library.
-main = lib.mkTarget {
-  context = lib.mkContext ./.;
-  tags    = [ (tag "app") ];
-  passthru = {
-    pushRef = "oci://ghcr.io/me/app:a1b2c3";
-  };
-};
-```
-
-The library ignores `passthru` when serializing the bake file and promises not to rely on its contents or absence.
-Downstream consumers read it directly off the module or target attrset.
-
-Because `mkTarget` rejects unknown keys to catch typos, `passthru` is the only way to attach wrapper-library data to a target.
-Other unknown keys on modules are tolerated today but may be rejected in a future release, so wrapper libraries should put extension data under `passthru` on both modules and targets.
+Because `mkTarget` rejects unknown keys, `passthru` is the only way to attach wrapper data to a target.
+Modules currently tolerate unknown keys but may reject them in a future release, so prefer `passthru` there too.
 
 ## API reference
 
@@ -311,13 +280,15 @@ The full function reference lives in [API.md](API.md).
 
 ## Testing
 
+Unit tests and integration fixtures live under `tests/` and run as part of `nix flake check`:
+
 ```bash
 nix flake check
 ```
 
 ## Limitations
 
-- The generated JSON contains absolute Nix store paths, so it should not be committed — regenerate it via `nix build` on each use.
+- The generated JSON contains absolute Nix store paths, so it should not be committed; regenerate it via `nix build` on each use.
 - `mkTarget` rejects unknown keys but does not type-check the values of known ones.
   Malformed values (e.g., a non-list `tags`) surface as errors at serialization time or inside Docker Bake itself.
 
