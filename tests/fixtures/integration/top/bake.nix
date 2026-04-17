@@ -7,17 +7,15 @@
   ...
 }:
 let
-  args = {
-    TOP_VERSION = "\${TOP_VERSION}";
-  };
-
   primary = lib.mkTarget {
     context = lib.mkContext ./images/primary;
     inherit platforms;
     contexts = {
       root = middle.targets.main;
     };
-    inherit args;
+    args = {
+      TOP_VERSION = "\${TOP_VERSION}";
+    };
     tags = [ (tag "top/primary") ];
   };
 
@@ -32,7 +30,6 @@ let
 in
 {
   namespace = "top";
-  vars = args;
   targets = {
     inherit primary secondary;
   };

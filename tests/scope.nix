@@ -8,7 +8,6 @@ let
       namespace = "test";
       targets = { main = lib.mkTarget { context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
-      vars = {};
     }
   '';
 
@@ -34,7 +33,6 @@ let
       namespace = "a";
       targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
       groups = {};
-      vars = {};
     }
   '';
   bFile = builtins.toFile "cbws-b.nix" ''
@@ -45,7 +43,6 @@ let
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
       groups = {};
-      vars = {};
     }
   '';
   scope2 = mkScope {
@@ -85,7 +82,6 @@ let
       namespace = "a";
       targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
       groups = {};
-      vars = {};
     }
   '';
   sharedB = builtins.toFile "shallow-b.nix" ''
@@ -94,7 +90,6 @@ let
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
       groups = {};
-      vars = {};
     }
   '';
   shallowScope = mkScope {

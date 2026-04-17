@@ -35,7 +35,6 @@ let
 in
 {
   namespace = "middle";
-  vars = args;
   targets = {
     inherit main;
     base = baseTarget;

@@ -10,6 +10,5 @@ in
     main = lib.mkTarget { context = ctx; };
   };
   groups = { };
-  vars = { };
   _ctxStr = toString ctx;
 }

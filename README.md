@@ -62,7 +62,6 @@ in
   namespace = "hello";
   targets = { inherit main; };
   groups.default = [ main ];
-  vars = { };
 }
 ```
 
@@ -105,7 +104,6 @@ in
     default = [ main ];        # `docker buildx bake default` builds main
     all     = [ main debug ];  # `docker buildx bake all` builds both
   };
-  vars = { APP_VERSION = appVersion; };
 }
 ```
 
@@ -210,12 +208,8 @@ A module function must return an attrset with this shape:
   namespace = "string";       # used for cross-module target ID namespacing
   targets   = { name = target; ... };              # attrset of target attrsets
   groups    = { name = [ target ... ]; ... };      # each value is a list of target attrsets
-  vars      = { NAME = "value"; ... };             # opaque; not consumed by the library
 }
 ```
-
-`vars` is not interpreted by the library.
-Use it to expose module-level metadata, such as which versions a module was built against, for introspection by consumers.
 
 ### Extending modules and targets with `passthru`
 
@@ -229,7 +223,6 @@ Both modules and targets accept an optional `passthru` attrset:
   namespace = "app";
   targets   = { inherit main; };
   groups    = { default = [ main ]; };
-  vars      = { };
 
   passthru = {
     pushRefs.main = "oci://ghcr.io/me/app:a1b2c3";

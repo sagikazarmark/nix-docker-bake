@@ -69,7 +69,7 @@
 
   # Validate a module's return shape. Throws with a clear message identifying
   # the offending module path. Returns the module unchanged on success.
-  # Shape: { namespace = string; targets = attrset; groups = attrset; vars = attrset; }
+  # Shape: { namespace = string; targets = attrset; groups = attrset; }
   checkModule =
     modulePath: module:
     let
@@ -95,10 +95,6 @@
       throw "${prefix} has non-attrset 'groups' (got: ${typeName module.groups})"
     else if !(builtins.all builtins.isList (builtins.attrValues module.groups)) then
       throw "${prefix} has a non-list group value in 'groups'"
-    else if !(module ? vars) then
-      throw "${prefix} is missing required attribute 'vars'"
-    else if !builtins.isAttrs module.vars then
-      throw "${prefix} has non-attrset 'vars' (got: ${typeName module.vars})"
     else if module ? passthru && !builtins.isAttrs module.passthru then
       throw "${prefix} has non-attrset 'passthru' (got: ${typeName module.passthru})"
     else

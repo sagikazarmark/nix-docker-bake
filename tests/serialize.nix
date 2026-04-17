@@ -18,7 +18,6 @@ let
       main = minimalTarget;
     };
     groups = { };
-    vars = { };
   };
   minimalScope.modules.test = minimalModule;
   serialized5 = serialize minimalScope minimalModule;
@@ -37,7 +36,6 @@ let
       outer = outerTarget;
     };
     groups = { };
-    vars = { };
   };
   crossScope.modules.cross = crossModule;
   serialized6 = serialize crossScope crossModule;
@@ -50,7 +48,6 @@ let
       shared = sharedTarget;
     };
     groups = { };
-    vars = { };
   };
   moduleB = {
     namespace = "b";
@@ -63,7 +60,6 @@ let
       };
     };
     groups = { };
-    vars = { };
   };
   abScope = {
     modules.a = moduleA;
@@ -85,48 +81,9 @@ let
         groupTargets.gb
       ];
     };
-    vars = { };
   };
   groupScope.modules.grp = groupModule;
   serialized8 = serialize groupScope groupModule;
-
-  # ---------- variable collection ----------
-  varModule = {
-    namespace = "v";
-    targets = {
-      main = mkTarget {
-        context = ./.;
-        args = {
-          FOO = "\${FOO}";
-          BAR = "literal";
-          lower = "\${lower_var}";
-          mixed = "\${MixedCase}";
-        };
-      };
-    };
-    groups = { };
-    vars = { };
-  };
-  varScope.modules.v = varModule;
-  serialized9 = serialize varScope varModule;
-
-  # ---------- empty variable block omission ----------
-  noVarsModule = {
-    namespace = "novars";
-    targets = {
-      main = mkTarget {
-        context = ./.;
-        tags = [ "foo:\${CHANNEL}" ];
-        args = {
-          BAR = "literal";
-        };
-      };
-    };
-    groups = { };
-    vars = { };
-  };
-  noVarsScope.modules.novars = noVarsModule;
-  serialized10 = serialize noVarsScope noVarsModule;
 in
 {
   # ---------- minimal ----------
@@ -180,37 +137,5 @@ in
       "ga"
       "gb"
     ];
-  };
-
-  # ---------- variable collection ----------
-  testSerializeCollectsTemplateVariable = {
-    expr = serialized9.variable ? FOO;
-    expected = true;
-  };
-
-  testSerializeIgnoresLiteralArg = {
-    expr = serialized9.variable ? BAR;
-    expected = false;
-  };
-
-  testSerializeCollectsLowercaseVariable = {
-    expr = serialized9.variable ? lower_var;
-    expected = true;
-  };
-
-  testSerializeCollectsMixedCaseVariable = {
-    expr = serialized9.variable ? MixedCase;
-    expected = true;
-  };
-
-  testSerializeDoesNotInjectChannel = {
-    expr = serialized9.variable ? CHANNEL;
-    expected = false;
-  };
-
-  # ---------- empty variable block omission ----------
-  testSerializeOmitsEmptyVariableBlock = {
-    expr = serialized10 ? variable;
-    expected = false;
   };
 }

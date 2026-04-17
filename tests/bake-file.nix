@@ -8,7 +8,6 @@ let
       namespace = "test";
       targets = { main = lib.mkTarget { context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
-      vars = {};
     }
   '';
 
