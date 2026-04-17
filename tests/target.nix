@@ -106,6 +106,17 @@ in
     expected = false;
   };
 
+  testMkTargetAcceptsPassthru = {
+    expr =
+      (mkTarget {
+        context = ./.;
+        passthru = {
+          pushRef = "oci://example/x:abc";
+        };
+      }).passthru.pushRef;
+    expected = "oci://example/x:abc";
+  };
+
   # ---------- extendTarget ----------
 
   testExtendTargetPreservesExistingArg = {
@@ -147,4 +158,43 @@ in
     expr = extendedCtx.contexts.extra;
     expected = "new";
   };
+
+  testExtendTargetPreservesPassthruWhenPatchOmitsIt =
+    let
+      base = mkTarget {
+        context = ./.;
+        passthru = {
+          pushRef = "oci://example/x:abc";
+        };
+      };
+      patched = extendTarget base { tags = [ "t" ]; };
+    in
+    {
+      expr = patched.passthru.pushRef;
+      expected = "oci://example/x:abc";
+    };
+
+  testExtendTargetPatchPassthruReplacesBase =
+    let
+      base = mkTarget {
+        context = ./.;
+        passthru = {
+          a = "1";
+          b = "2";
+        };
+      };
+      # `a` is intentionally absent in the result: passthru is replaced
+      # wholesale by the patch, not merged like args/contexts.
+      patched = extendTarget base {
+        passthru = {
+          b = "x";
+        };
+      };
+    in
+    {
+      expr = patched.passthru;
+      expected = {
+        b = "x";
+      };
+    };
 }
