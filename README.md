@@ -250,7 +250,8 @@ main = lib.mkTarget {
 The library ignores `passthru` when serializing the bake file and promises not to rely on its contents or absence.
 Downstream consumers read it directly off the module or target attrset.
 
-`passthru` is the documented extension point.
+`passthru` is the documented extension point on both modules and targets.
+`mkTarget` already rejects unknown keys to catch typos, so `passthru` is the only way to attach wrapper-library data to a target.
 Other unknown keys on modules are tolerated today but may be rejected in a future release; wrapper libraries should put extension data under `passthru`.
 
 ## API reference

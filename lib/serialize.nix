@@ -117,6 +117,8 @@ let
         hasContexts = contexts != { };
         hasPlatforms = target ? platforms && target.platforms != null;
 
+        # Explicit allowlist — do not splat `target //` here. Unknown target
+        # attrs (e.g., `passthru`) must not leak into the serialized output.
         serialized = {
           context = serializeContext target.context;
           dockerfile = target.dockerfile;
