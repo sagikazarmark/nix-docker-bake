@@ -166,8 +166,7 @@ in
   };
 
   testCallBakeWithScopeUnknownModuleThrows = {
-    expr =
-      (builtins.tryEval (cwsMkCtxScope.lib.callBakeWithScope "nonexistent" (_: _: { }))).success;
+    expr = (builtins.tryEval (cwsMkCtxScope.lib.callBakeWithScope "nonexistent" (_: _: { }))).success;
     expected = false;
   };
 
