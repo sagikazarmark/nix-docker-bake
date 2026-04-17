@@ -13,5 +13,4 @@
       base.targets.main
     ];
   };
-  vars = { };
 }

@@ -20,5 +20,4 @@ in
     inherit main;
   };
   groups = { };
-  vars = { };
 }

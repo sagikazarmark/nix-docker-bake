@@ -53,7 +53,6 @@ let
       namespace = "a";
       targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
       groups = {};
-      vars = {};
     }
   '';
   cwsBFile = builtins.toFile "cws-b.nix" ''
@@ -63,7 +62,6 @@ let
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = a.targets.t; }; };
       groups = {};
-      vars = {};
     }
   '';
   cwsScope = mkScope {
@@ -127,11 +125,6 @@ in
   testIntBaseNoGroups = {
     expr = baseSer.group;
     expected = { };
-  };
-
-  testIntBaseNoInjectedChannelVariable = {
-    expr = (baseSer.variable or { }) ? CHANNEL;
-    expected = false;
   };
 
   # ---------- Scenario 2: middle module — cross-module contexts ----------
@@ -212,11 +205,6 @@ in
   testIntTopGroupDefaultLength = {
     expr = builtins.length topSer.group.default.targets;
     expected = 2;
-  };
-
-  testIntTopVariableCollected = {
-    expr = topSer.variable ? TOP_VERSION;
-    expected = true;
   };
 
   testIntTopPrimaryTags = {

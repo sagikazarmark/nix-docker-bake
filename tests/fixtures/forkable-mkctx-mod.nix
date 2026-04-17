@@ -14,6 +14,5 @@ in
     };
   };
   groups = { };
-  vars = { };
   _ctxStr = toString ctx;
 }

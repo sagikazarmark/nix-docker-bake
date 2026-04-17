@@ -11,34 +11,6 @@ let
     else
       throw "serializeContext: unsupported type (got ${builtins.typeOf value})";
 
-  # Match ^${NAME}$ in a string. Returns the variable name or null.
-  # Accepts HCL-style identifiers: letter or underscore, followed by letters,
-  # digits, or underscores (any case).
-  extractVarName =
-    value:
-    if !builtins.isString value then
-      null
-    else
-      let
-        m = builtins.match "\\$[{]([A-Za-z_][A-Za-z0-9_]*)[}]" value;
-      in
-      if m == null then null else builtins.head m;
-
-  # Collect all variable names referenced in any target's args.
-  collectVariables =
-    targets:
-    let
-      targetsList = builtins.attrValues targets;
-      allArgs = builtins.concatMap (t: if t ? args then builtins.attrValues t.args else [ ]) targetsList;
-      varNames = builtins.filter (n: n != null) (map extractVarName allArgs);
-    in
-    builtins.listToAttrs (
-      map (n: {
-        name = n;
-        value = { };
-      }) varNames
-    );
-
   # Reverse lookup: list of { target, namespace, name } entries.
   buildIdentityMap =
     scope:
@@ -199,14 +171,11 @@ let
           groupOutputs = { };
         }
       ) groupNames;
-
-      vars = collectVariables afterGroups.target;
     in
     {
       group = afterGroups.groupOutputs;
       target = afterGroups.target;
-    }
-    // (if vars == { } then { } else { variable = vars; });
+    };
 in
 {
   inherit serialize;

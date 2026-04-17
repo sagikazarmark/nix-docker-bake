@@ -6,7 +6,6 @@ let
     namespace = "n";
     targets = { };
     groups = { };
-    vars = { };
   };
 in
 {
@@ -21,7 +20,6 @@ in
         checkModule ./x {
           targets = { };
           groups = { };
-          vars = { };
         }
       )).success;
     expected = false;
@@ -34,7 +32,6 @@ in
           namespace = 42;
           targets = { };
           groups = { };
-          vars = { };
         }
       )).success;
     expected = false;
@@ -47,7 +44,6 @@ in
           namespace = "";
           targets = { };
           groups = { };
-          vars = { };
         }
       )).success;
     expected = false;
@@ -60,7 +56,6 @@ in
           namespace = "n";
           targets = [ ];
           groups = { };
-          vars = { };
         }
       )).success;
     expected = false;
@@ -75,7 +70,6 @@ in
           groups = {
             default = { };
           };
-          vars = { };
         }
       )).success;
     expected = false;
