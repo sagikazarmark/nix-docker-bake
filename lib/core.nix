@@ -45,30 +45,6 @@ rec {
     in
     target;
 
-  # Extend a base target with a patch. Atomic fields (context, dockerfile,
-  # target, tags, platforms) are replaced when present in the patch. Attrset
-  # fields (args, contexts) are merged, with patch keys winning on conflict.
-  extendTarget =
-    base: patch:
-    base
-    // patch
-    // (
-      if patch ? args then
-        {
-          args = (base.args or { }) // patch.args;
-        }
-      else
-        { }
-    )
-    // (
-      if patch ? contexts then
-        {
-          contexts = (base.contexts or { }) // patch.contexts;
-        }
-      else
-        { }
-    );
-
   # mkContext: import a Docker build context as an isolated store path.
   # The store-path hash depends ONLY on the directory's contents, not the
   # entire repo — preventing Docker cache busting when unrelated files

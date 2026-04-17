@@ -30,7 +30,7 @@ let
         let
           libFunctions = {
             # Library primitives exposed for module consumption.
-            inherit (core) mkTarget extendTarget mkContext;
+            inherit (core) mkTarget mkContext;
 
             # callBake: auto-inject function arguments from the scope, allow overrides.
             callBake =
