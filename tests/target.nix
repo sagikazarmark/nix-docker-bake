@@ -137,6 +137,14 @@ in
     expected = "bar";
   };
 
+  testMkTargetRawUpdatePreservesOverrideAttrs = {
+    expr =
+      (t3.overrideAttrs (_: {
+        tags = [ "x" ];
+      })).tags;
+    expected = [ "x" ];
+  };
+
   testMkTargetRejectsUnknownKeys = {
     expr =
       (builtins.tryEval (mkTarget {
