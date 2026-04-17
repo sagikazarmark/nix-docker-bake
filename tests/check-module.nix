@@ -75,6 +75,35 @@ in
     expected = false;
   };
 
+  testCheckModulePassesOnlyTargets = {
+    expr = checkModule ./x {
+      namespace = "n";
+      targets = { };
+    };
+    expected = {
+      namespace = "n";
+      targets = { };
+    };
+  };
+
+  testCheckModulePassesOnlyGroups = {
+    expr = checkModule ./x {
+      namespace = "n";
+      groups = { };
+    };
+    expected = {
+      namespace = "n";
+      groups = { };
+    };
+  };
+
+  testCheckModulePassesNamespaceOnly = {
+    expr = checkModule ./x { namespace = "n"; };
+    expected = {
+      namespace = "n";
+    };
+  };
+
   testCheckModuleAcceptsAttrsetPassthru = {
     expr = checkModule ./x (
       validModule

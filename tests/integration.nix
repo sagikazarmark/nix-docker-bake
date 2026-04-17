@@ -92,7 +92,6 @@ in
   testIntBaseHasTopLevelKeys = {
     expr = builtins.sort builtins.lessThan (builtins.attrNames baseSer);
     expected = [
-      "group"
       "target"
     ];
   };
@@ -123,8 +122,8 @@ in
   };
 
   testIntBaseNoGroups = {
-    expr = baseSer.group;
-    expected = { };
+    expr = baseSer ? group;
+    expected = false;
   };
 
   # ---------- Scenario 2: middle module — cross-module contexts ----------

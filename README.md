@@ -205,11 +205,15 @@ A module function must return an attrset with this shape:
 
 ```nix
 {
-  namespace = "string";       # used for cross-module target ID namespacing
-  targets   = { name = target; ... };              # attrset of target attrsets
-  groups    = { name = [ target ... ]; ... };      # each value is a list of target attrsets
+  namespace = "string";       # required; used for cross-module target ID namespacing
+  targets   = { name = target; ... };              # optional; attrset of target attrsets
+  groups    = { name = [ target ... ]; ... };      # optional; each value is a list of target attrsets
 }
 ```
+
+Only `namespace` is required.
+`targets` and `groups` default to `{}` when absent.
+If the resulting target or group set is empty, the corresponding top-level key is omitted from the serialized output.
 
 ### Extending modules and targets with `passthru`
 
