@@ -42,6 +42,12 @@ let
               in
               core.checkModule modulePath module;
 
+            # Fork the scope with an overlay and return the forked scope.
+            # Consumers typically access `.modules.<name>` on the result to
+            # pull in a specific module resolved under the fork. Transitive
+            # callBake calls inside the resolved module see the overlay.
+            extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+
             # callBakeWithScope: fork the scope with an overlay and re-resolve
             # a registered module under the fork. Transitive callBake calls
             # inside the resolved module see the overlay. The module name is

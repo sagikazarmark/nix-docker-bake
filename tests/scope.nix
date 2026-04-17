@@ -74,6 +74,9 @@ let
   # scope.extend
   extendedScope = scope1.extend (final: prev: { myConfigValue = "extended"; });
 
+  # lib.extend
+  libExtendedScope = scope1.lib.extend (final: prev: { myConfigValue = "lib-extended"; });
+
   # callBake shallow isolation: overriding a config value when resolving one
   # module must not affect sibling modules that read the same value.
   sharedA = builtins.toFile "shallow-a.nix" ''
@@ -250,6 +253,18 @@ in
         modules.modules = scopeTestModuleFile;
       })).success;
     expected = false;
+  };
+
+  # ---------- lib.extend ----------
+
+  testLibExtendForksScope = {
+    expr = libExtendedScope.modules.test.targets.main.args.VAL;
+    expected = "lib-extended";
+  };
+
+  testLibExtendDoesNotMutateOriginalScope = {
+    expr = scope1.test.targets.main.args.VAL;
+    expected = "hello";
   };
 
   # ---------- callBake shallow isolation ----------
