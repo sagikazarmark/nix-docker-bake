@@ -97,21 +97,21 @@ let
     nixLib.fix scopeFn;
 
   # Generate a docker-bake.json file as a Nix-store path.
-  # scope: the fully-resolved scope (output of mkScope)
-  # module: the name of the module to serialize (must be a key in scope.modules)
+  # Takes a resolved module value (from scope.modules.X or scope.X).
+  # The module carries a _scope back-reference so cross-module target
+  # identity resolution in the serializer has what it needs.
   #
   # builtins.unsafeDiscardStringContext is needed because builtins.toFile
   # cannot reference store paths produced by builtins.path (used by mkContext).
   # The context paths are already realized at eval time and Docker reads them
   # at runtime, so Nix dependency tracking on the bake file is not needed.
   mkBakeFile =
-    { scope, module }:
+    module:
     let
-      available = builtins.concatStringsSep ", " (builtins.attrNames scope.modules);
-      mod =
-        scope.modules.${module}
-          or (throw "mkBakeFile: module '${module}' not found in scope. Available modules: ${available}");
-      serialized = serialize.serialize scope mod;
+      scope =
+        module._scope
+          or (throw "mkBakeFile: module is missing _scope back-reference; was it produced by mkScope?");
+      serialized = serialize.serialize scope module;
     in
     builtins.toFile "docker-bake.json" (
       builtins.unsafeDiscardStringContext (builtins.toJSON serialized)

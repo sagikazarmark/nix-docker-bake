@@ -23,13 +23,7 @@ let
   };
 
   # Full round-trip through mkBakeFile: serialize → JSON file → parse.
-  parse =
-    module:
-    builtins.fromJSON (
-      builtins.readFile (mkBakeFile {
-        inherit scope module;
-      })
-    );
+  parse = moduleName: builtins.fromJSON (builtins.readFile (mkBakeFile scope.modules.${moduleName}));
 
   baseSer = parse "base";
   middleSer = parse "middle";
@@ -38,12 +32,7 @@ let
 
   # Extended scope for override tests.
   extendedScope = scope.extend (final: prev: { platforms = [ "linux/arm64" ]; });
-  extBaseSer = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = extendedScope;
-      module = "base";
-    })
-  );
+  extBaseSer = builtins.fromJSON (builtins.readFile (mkBakeFile extendedScope.modules.base));
 
   # callBakeWithScope: inline modules (builtins.toFile) since they don't need mkContext.
   # These CAN go through mkBakeFile because bare paths don't trigger the toFile restriction.
@@ -73,18 +62,8 @@ let
       b = cwsBFile;
     };
   };
-  cwsAParsed = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = cwsScope;
-      module = "a";
-    })
-  );
-  cwsBParsed = builtins.fromJSON (
-    builtins.readFile (mkBakeFile {
-      scope = cwsScope;
-      module = "b";
-    })
-  );
+  cwsAParsed = builtins.fromJSON (builtins.readFile (mkBakeFile cwsScope.modules.a));
+  cwsBParsed = builtins.fromJSON (builtins.readFile (mkBakeFile cwsScope.modules.b));
 in
 {
   # ---------- Scenario 1: base module — single-module full round-trip ----------
