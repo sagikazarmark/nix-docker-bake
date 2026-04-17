@@ -34,7 +34,7 @@ let
   extendedScope = scope.extend (final: prev: { platforms = [ "linux/arm64" ]; });
   extBaseSer = builtins.fromJSON (builtins.readFile (mkBakeFile extendedScope.modules.base));
 
-  # callBakeWithScope: inline modules (builtins.toFile) since they don't need mkContext.
+  # lib.extend: inline modules (builtins.toFile) since they don't need mkContext.
   # These CAN go through mkBakeFile because bare paths don't trigger the toFile restriction.
   cwsAFile = builtins.toFile "cws-a.nix" ''
     { lib, val, ... }:
@@ -46,7 +46,7 @@ let
   '';
   cwsBFile = builtins.toFile "cws-b.nix" ''
     { lib, ... }:
-    let a = lib.callBakeWithScope "a" (final: prev: { val = "overridden"; });
+    let a = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = a.targets.t; }; };
@@ -231,7 +231,7 @@ in
     expected = true;
   };
 
-  # ---------- Scenario 6: callBakeWithScope through mkBakeFile ----------
+  # ---------- Scenario 6: lib.extend through mkBakeFile ----------
 
   # The overridden a.t is a different attrset than scope.modules.a.targets.t,
   # so the identity lookup produces a synthetic name (t__root), not a_t.

@@ -48,26 +48,6 @@ let
             # callBake calls inside the resolved module see the overlay.
             extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
 
-            # callBakeWithScope: fork the scope with an overlay and re-resolve
-            # a registered module under the fork. Transitive callBake calls
-            # inside the resolved module see the overlay. The module name is
-            # used both to look up the path and to specialize mkContext, so
-            # the forked module gets the same per-module lib as the default
-            # resolution path.
-            callBakeWithScope =
-              moduleName: overlay:
-              let
-                available = builtins.concatStringsSep ", " (builtins.attrNames modules);
-                modulePath =
-                  modules.${moduleName}
-                    or (throw "callBakeWithScope: module '${moduleName}' not found in scope. Available modules: ${available}");
-                forkedScope = nixLib.fix (nixLib.extends overlay scopeFn);
-                moduleLib = forkedScope.lib // {
-                  mkContext = core.mkContext moduleName;
-                  mkContextWith = core.mkContextWith moduleName;
-                };
-              in
-              forkedScope.lib.callBake modulePath { lib = moduleLib; };
           };
         in
         config
@@ -76,8 +56,6 @@ let
           lib = libFunctions;
 
           # Return a new scope with the given overlay applied.
-          # Use this to persistently extend the scope for a subtree of your code
-          # rather than forking per-module via callBakeWithScope.
           extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
         }
         // builtins.mapAttrs (
