@@ -27,8 +27,9 @@ t.overrideAttrs (old: { args = old.args // { FOO = "bar"; }; })
 t.overrideAttrs (old: { tags = old.tags ++ [ "extra" ]; })
 
 # Chain: each call returns a target with its own .overrideAttrs.
-t.overrideAttrs (old: { args = old.args // { X = "1"; }; })
- .overrideAttrs (old: { tags = old.tags ++ [ "latest" ]; })
+# Outer parens are required — Nix's `.` binds tighter than application.
+(t.overrideAttrs (old: { args = old.args // { X = "1"; }; }))
+  .overrideAttrs (old: { tags = old.tags ++ [ "latest" ]; })
 ```
 
 ## `mkContext prefix path`
