@@ -171,7 +171,7 @@ scope = mkScope {
 
 ## Overrides
 
-The scope exposes two override mechanisms.
+The scope exposes several override mechanisms.
 Choose based on how far you want the change to propagate:
 
 | You want to... | Use |

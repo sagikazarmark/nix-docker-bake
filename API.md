@@ -70,7 +70,7 @@ Called internally by `mkScope` after each module is resolved; exposed for consum
 
 The main entry point.
 Takes a `config` attrset and an attrset of `name -> path` module references (where path may be a Nix path or a string), builds a fixed-point scope, and validates each resolved module.
-Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `modules`).
+Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `override`, `modules`).
 
 ## `mkBakeFile module`
 
