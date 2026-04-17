@@ -89,7 +89,7 @@ in
 ```nix
 # flake.nix
 {
-  inputs.bake.url = "github:sagikazarmar/nix-docker-bake";
+  inputs.bake.url = "github:sagikazarmark/nix-docker-bake";
   inputs.bake.inputs.nixpkgs.follows = "nixpkgs";
 
   outputs = { bake, ... }:
