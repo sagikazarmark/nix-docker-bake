@@ -105,6 +105,22 @@ Reach for `override` when you are replacing config values; use `extend` when you
 devScope = scope.override { appVersion = "v2.0.0"; };
 ```
 
+## `lib.callBake path overrides`
+
+Available on the per-module `lib` injected into modules resolved by `mkScope`.
+Resolves the module at `path` with its function arguments auto-injected from the scope, and applies `overrides` as a per-call replacement attrset.
+Returns the resolved module value (same shape as `scope.modules.<name>`).
+
+Use this when you want to re-resolve a single module with a different argument — siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead.
+
+```nix
+# Inside a bake module
+{ lib, ... }:
+let
+  devApp = lib.callBake ./app/bake.nix { appVersion = "v2.0.0"; };
+in { ... }
+```
+
 ## `lib.extend overlay`
 
 Available on the per-module `lib` injected into modules resolved by `mkScope`.

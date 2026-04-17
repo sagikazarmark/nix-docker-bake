@@ -29,6 +29,17 @@ let
       scopeFn =
         self:
         let
+          # Fork the scope with an overlay and return the forked scope.
+          # Consumers typically access `.modules.<name>` on the result to
+          # pull in a specific module resolved under the fork. Transitive
+          # callBake calls inside the resolved module see the overlay.
+          extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+
+          # Plain-attrs sugar over extend. Use this when you just want to
+          # replace config values; reach for extend when you need the
+          # (final: prev: ...) form (e.g., self-referential rewrites).
+          override = attrs: extend (_: _: attrs);
+
           libFunctions = {
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
@@ -43,13 +54,7 @@ let
               in
               core.checkModule modulePath module;
 
-            # Fork the scope with an overlay and return the forked scope.
-            # Consumers typically access `.modules.<name>` on the result to
-            # pull in a specific module resolved under the fork. Transitive
-            # callBake calls inside the resolved module see the overlay.
-            extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
-            override = attrs: nixLib.fix (nixLib.extends (_: _: attrs) scopeFn);
-
+            inherit extend override;
           };
         in
         config
@@ -57,13 +62,7 @@ let
           # Library functions namespaced under lib, mirroring nixpkgs conventions.
           lib = libFunctions;
 
-          # Return a new scope with the given overlay applied.
-          extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
-
-          # Plain-attrs sugar over extend. Use this when you just want to
-          # replace config values; reach for extend when you need the
-          # (final: prev: ...) form (e.g., self-referential rewrites).
-          override = attrs: nixLib.fix (nixLib.extends (_: _: attrs) scopeFn);
+          inherit extend override;
         }
         // builtins.mapAttrs (
           moduleName: modulePath:
