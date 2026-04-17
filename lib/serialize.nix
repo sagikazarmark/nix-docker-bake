@@ -172,10 +172,8 @@ let
         }
       ) groupNames;
     in
-    {
-      group = afterGroups.groupOutputs;
-      target = afterGroups.target;
-    };
+    (if afterGroups.target != { } then { target = afterGroups.target; } else { })
+    // (if afterGroups.groupOutputs != { } then { group = afterGroups.groupOutputs; } else { });
 in
 {
   inherit serialize;

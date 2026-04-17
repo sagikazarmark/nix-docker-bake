@@ -63,7 +63,8 @@ rec {
 
   # Validate a module's return shape. Throws with a clear message identifying
   # the offending module path. Returns the module unchanged on success.
-  # Shape: { namespace = string; targets = attrset; groups = attrset; }
+  # Shape: { namespace = string; targets = attrset?; groups = attrset?; }
+  # Both `targets` and `groups` are optional; absent means `{}`.
   checkModule =
     modulePath: module:
     let
@@ -79,15 +80,11 @@ rec {
       throw "${prefix} has non-string 'namespace' (got: ${typeName module.namespace})"
     else if module.namespace == "" then
       throw "${prefix} has empty 'namespace'"
-    else if !(module ? targets) then
-      throw "${prefix} is missing required attribute 'targets'"
-    else if !builtins.isAttrs module.targets then
+    else if module ? targets && !builtins.isAttrs module.targets then
       throw "${prefix} has non-attrset 'targets' (got: ${typeName module.targets})"
-    else if !(module ? groups) then
-      throw "${prefix} is missing required attribute 'groups'"
-    else if !builtins.isAttrs module.groups then
+    else if module ? groups && !builtins.isAttrs module.groups then
       throw "${prefix} has non-attrset 'groups' (got: ${typeName module.groups})"
-    else if !(builtins.all builtins.isList (builtins.attrValues module.groups)) then
+    else if module ? groups && !(builtins.all builtins.isList (builtins.attrValues module.groups)) then
       throw "${prefix} has a non-list group value in 'groups'"
     else if module ? passthru && !builtins.isAttrs module.passthru then
       throw "${prefix} has non-attrset 'passthru' (got: ${typeName module.passthru})"

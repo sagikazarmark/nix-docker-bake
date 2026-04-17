@@ -84,6 +84,31 @@ let
   };
   groupScope.modules.grp = groupModule;
   serialized8 = serialize groupScope groupModule;
+
+  # ---------- optional top-level keys ----------
+  onlyTargetsModule = {
+    namespace = "ot";
+    targets = {
+      main = mkTarget { context = ./ot; };
+    };
+  };
+  onlyTargetsScope.modules.ot = onlyTargetsModule;
+  serialized9 = serialize onlyTargetsScope onlyTargetsModule;
+
+  onlyGroupsModule = {
+    namespace = "og";
+    groups = {
+      empty = [ ];
+    };
+  };
+  onlyGroupsScope.modules.og = onlyGroupsModule;
+  serialized10 = serialize onlyGroupsScope onlyGroupsModule;
+
+  emptyModule = {
+    namespace = "em";
+  };
+  emptyScope.modules.em = emptyModule;
+  serialized11 = serialize emptyScope emptyModule;
 in
 {
   # ---------- minimal ----------
@@ -137,5 +162,31 @@ in
       "ga"
       "gb"
     ];
+  };
+
+  # ---------- optional top-level keys ----------
+  testSerializeOmitsGroupKeyWhenNoGroups = {
+    expr = serialized9 ? group;
+    expected = false;
+  };
+
+  testSerializeOnlyTargetsKeepsTarget = {
+    expr = serialized9.target ? main;
+    expected = true;
+  };
+
+  testSerializeOmitsTargetKeyWhenNoTargets = {
+    expr = serialized10 ? target;
+    expected = false;
+  };
+
+  testSerializeOnlyGroupsKeepsGroup = {
+    expr = serialized10.group.empty.targets;
+    expected = [ ];
+  };
+
+  testSerializeEmptyModule = {
+    expr = serialized11;
+    expected = { };
   };
 }
