@@ -40,7 +40,7 @@ let
   bFile = builtins.toFile "cbws-b.nix" ''
     { lib, ... }:
     let
-      aOverridden = lib.callBakeWithScope ${aFile} (final: prev: { val = "overridden"; });
+      aOverridden = lib.callBakeWithScope "a" (final: prev: { val = "overridden"; });
     in {
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
@@ -63,6 +63,16 @@ let
     config = { };
     modules.my-module = ./fixtures/mkctx-mod.nix;
   };
+
+  # callBakeWithScope with mkContext: a forked module must still receive a
+  # per-module-specialized lib.mkContext (not the unspecialized curried form).
+  cwsMkCtxScope = mkScope {
+    config.val = "default";
+    modules.forkable = ./fixtures/forkable-mkctx-mod.nix;
+  };
+  cwsMkCtxForked = cwsMkCtxScope.lib.callBakeWithScope "forkable" (
+    final: prev: { val = "overridden"; }
+  );
 
   # scope.extend
   extendedScope = scope1.extend (final: prev: { myConfigValue = "extended"; });
@@ -140,6 +150,24 @@ in
   testCallBakeWithScopePropagatesOverride = {
     expr = scope2.b.targets.t.contexts.root.args.VAL;
     expected = "overridden";
+  };
+
+  # callBakeWithScope must specialize mkContext with the module's registry key,
+  # same as the default mapAttrs path. Without specialization, lib.mkContext
+  # returns a lambda and downstream serialization breaks.
+  testCallBakeWithScopeMkContextIsStorePath = {
+    expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxStr != null;
+    expected = true;
+  };
+
+  testCallBakeWithScopeMkContextUsesRegistryKey = {
+    expr = cwsMkCtxForked.targets.t.args.VAL;
+    expected = "overridden";
+  };
+
+  testCallBakeWithScopeUnknownModuleThrows = {
+    expr = (builtins.tryEval (cwsMkCtxScope.lib.callBakeWithScope "nonexistent" (_: _: { }))).success;
+    expected = false;
   };
 
   # ---------- scope.extend ----------

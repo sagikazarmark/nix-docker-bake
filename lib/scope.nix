@@ -42,14 +42,25 @@ let
               in
               core.checkModule modulePath module;
 
-            # callBakeWithScope: fork the scope with an overlay before resolving.
-            # Transitive callBake calls inside the resolved module see the overlay.
+            # callBakeWithScope: fork the scope with an overlay and re-resolve
+            # a registered module under the fork. Transitive callBake calls
+            # inside the resolved module see the overlay. The module name is
+            # used both to look up the path and to specialize mkContext, so
+            # the forked module gets the same per-module lib as the default
+            # resolution path.
             callBakeWithScope =
-              modulePath: overlay:
+              moduleName: overlay:
               let
+                available = builtins.concatStringsSep ", " (builtins.attrNames modules);
+                modulePath =
+                  modules.${moduleName}
+                    or (throw "callBakeWithScope: module '${moduleName}' not found in scope. Available modules: ${available}");
                 forkedScope = nixLib.fix (nixLib.extends overlay scopeFn);
+                moduleLib = forkedScope.lib // {
+                  mkContext = core.mkContext moduleName;
+                };
               in
-              forkedScope.lib.callBake modulePath { };
+              forkedScope.lib.callBake modulePath { lib = moduleLib; };
           };
         in
         config
