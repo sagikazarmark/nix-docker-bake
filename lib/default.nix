@@ -13,7 +13,6 @@ in
   inherit (core)
     mkTarget
     checkModule
-    extendTarget
     mkContext
     ;
 

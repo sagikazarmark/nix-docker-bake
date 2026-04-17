@@ -7,12 +7,30 @@ Defaults `dockerfile` to `"Dockerfile"`.
 Throws if `context` is missing.
 Does not default `platforms`.
 
-## `extendTarget base patch`
+## `target.overrideAttrs f`
 
-Extend a base target with a patch.
-Atomic fields (`context`, `dockerfile`, `target`, `tags`, `platforms`) are replaced when present in the patch.
-Attrset fields (`args`, `contexts`) are merged, with patch values winning on conflict.
-Use this instead of `base // patch` when you want to preserve existing `args` or `contexts` from the base.
+Every target produced by `mkTarget` carries an `.overrideAttrs` method.
+It accepts either a function `old -> attrs` or a plain attrset.
+The returned attrs shallow-merge onto the current target via `//`, and the result is re-validated through `mkTarget` (so unknown keys still throw, `context` is still required).
+The result carries its own `.overrideAttrs`, so calls chain.
+
+No merge policy is applied to any field — each call site writes exactly the merge it wants.
+
+```nix
+# Replace args wholesale (attrset form — shorthand).
+t.overrideAttrs { args = { FOO = "bar"; }; }
+
+# Merge args — reference old values.
+t.overrideAttrs (old: { args = old.args // { FOO = "bar"; }; })
+
+# Append to tags (not expressible via any fixed merge policy).
+t.overrideAttrs (old: { tags = old.tags ++ [ "extra" ]; })
+
+# Chain: each call returns a target with its own .overrideAttrs.
+# Outer parens are required — Nix's `.` binds tighter than application.
+(t.overrideAttrs (old: { args = old.args // { X = "1"; }; }))
+  .overrideAttrs (old: { tags = old.tags ++ [ "latest" ]; })
+```
 
 ## `mkContext prefix path`
 
