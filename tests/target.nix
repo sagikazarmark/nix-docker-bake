@@ -50,7 +50,7 @@ let
     };
   };
 
-  # Function form: append to a list (inexpressible under extendTarget).
+  # Function form: append to a list — only expressible with access to `old`.
   withExtraTag =
     let
       base = mkTarget {
