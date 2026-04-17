@@ -106,6 +106,17 @@ in
     expected = false;
   };
 
+  testMkTargetAcceptsPassthru = {
+    expr =
+      (mkTarget {
+        context = ./.;
+        passthru = {
+          pushRef = "oci://example/x:abc";
+        };
+      }).passthru.pushRef;
+    expected = "oci://example/x:abc";
+  };
+
   # ---------- extendTarget ----------
 
   testExtendTargetPreservesExistingArg = {

@@ -217,6 +217,42 @@ A module function must return an attrset with this shape:
 `vars` is not interpreted by the library.
 Use it to expose module-level metadata, such as which versions a module was built against, for introspection by consumers.
 
+### Extending modules and targets with `passthru`
+
+Wrapper libraries built on top of nix-docker-bake often need to attach data to a module or target that isn't part of the bake shape — for example, a tag-management layer that wants to surface per-target push refs to non-bake consumers.
+
+`passthru` is the reserved attribute for this.
+Both modules and targets accept an optional `passthru` attrset:
+
+```nix
+{
+  namespace = "app";
+  targets   = { inherit main; };
+  groups    = { default = [ main ]; };
+  vars      = { };
+
+  passthru = {
+    pushRefs.main = "oci://ghcr.io/me/app:a1b2c3";
+  };
+}
+```
+
+```nix
+main = lib.mkTarget {
+  context = lib.mkContext "app" ./.;
+  tags    = [ (tag "app") ];
+  passthru = {
+    pushRef = "oci://ghcr.io/me/app:a1b2c3";
+  };
+};
+```
+
+The library ignores `passthru` when serializing the bake file and promises not to rely on its contents or absence.
+Downstream consumers read it directly off the module or target attrset.
+
+`passthru` is the documented extension point.
+Other unknown keys on modules are tolerated today but may be rejected in a future release; wrapper libraries should put extension data under `passthru`.
+
 ## API reference
 
 The full function reference lives in [API.md](API.md).

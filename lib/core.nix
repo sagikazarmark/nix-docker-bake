@@ -15,6 +15,7 @@
         "args"
         "tags"
         "platforms"
+        "passthru"
       ];
       unknownKeys = builtins.filter (k: !(builtins.elem k allowedKeys)) (builtins.attrNames attrs);
     in
@@ -98,6 +99,8 @@
       throw "${prefix} is missing required attribute 'vars'"
     else if !builtins.isAttrs module.vars then
       throw "${prefix} has non-attrset 'vars' (got: ${typeName module.vars})"
+    else if module ? passthru && !builtins.isAttrs module.passthru then
+      throw "${prefix} has non-attrset 'passthru' (got: ${typeName module.passthru})"
     else
       module;
 }

@@ -80,4 +80,26 @@ in
       )).success;
     expected = false;
   };
+
+  testCheckModuleAcceptsAttrsetPassthru = {
+    expr = checkModule ./x (
+      validModule
+      // {
+        passthru = {
+          foo = "bar";
+        };
+      }
+    );
+    expected = validModule // {
+      passthru = {
+        foo = "bar";
+      };
+    };
+  };
+
+  testCheckModuleThrowsNonAttrsetPassthru = {
+    expr =
+      (builtins.tryEval (checkModule ./x (validModule // { passthru = "not-an-attrset"; }))).success;
+    expected = false;
+  };
 }
