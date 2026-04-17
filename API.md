@@ -109,7 +109,8 @@ devScope = scope.override { appVersion = "v2.0.0"; };
 
 Available on the per-module `lib` injected into modules resolved by `mkScope`.
 Resolves the module at `path` with its function arguments auto-injected from the scope, and applies `overrides` as a per-call replacement attrset.
-Returns the resolved module value (same shape as `scope.modules.<name>`).
+Returns a resolved module value, suitable for use as a dependency of another module.
+Unlike `scope.modules.<name>`, the returned value has no `_scope` back-reference, so it is not directly serializable via `mkBakeFile`.
 
 Use this when you want to re-resolve a single module with a different argument — siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead.
 
