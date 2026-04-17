@@ -17,6 +17,7 @@ let
       reservedNames = [
         "lib"
         "extend"
+        "override"
         "modules"
       ];
       conflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
@@ -47,6 +48,7 @@ let
             # pull in a specific module resolved under the fork. Transitive
             # callBake calls inside the resolved module see the overlay.
             extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+            override = attrs: nixLib.fix (nixLib.extends (_: _: attrs) scopeFn);
 
           };
         in
@@ -57,6 +59,11 @@ let
 
           # Return a new scope with the given overlay applied.
           extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
+
+          # Plain-attrs sugar over extend. Use this when you just want to
+          # replace config values; reach for extend when you need the
+          # (final: prev: ...) form (e.g., self-referential rewrites).
+          override = attrs: nixLib.fix (nixLib.extends (_: _: attrs) scopeFn);
         }
         // builtins.mapAttrs (
           moduleName: modulePath:

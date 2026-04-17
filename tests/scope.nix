@@ -102,6 +102,34 @@ let
   };
   # Re-resolve only `a` with an override.
   aOverridden = shallowScope.lib.callBake sharedA { shared = "overridden"; };
+
+  scopeOverridden = scope1.override { myConfigValue = "overridden-via-override"; };
+
+  libOverrideAFile = builtins.toFile "libov-a.nix" ''
+    { lib, val, ... }:
+    {
+      namespace = "a";
+      targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
+      groups = {};
+    }
+  '';
+  libOverrideBFile = builtins.toFile "libov-b.nix" ''
+    { lib, ... }:
+    let
+      aOverridden = (lib.override { val = "via-lib-override"; }).modules.a;
+    in {
+      namespace = "b";
+      targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
+      groups = {};
+    }
+  '';
+  libOverrideScope = mkScope {
+    config.val = "default";
+    modules = {
+      a = libOverrideAFile;
+      b = libOverrideBFile;
+    };
+  };
 in
 {
   # ---------- mkScope ----------
@@ -252,6 +280,15 @@ in
     expected = false;
   };
 
+  testMkScopeRejectsReservedNameOverride = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.override = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
   # ---------- lib.extend ----------
 
   testLibExtendForksScope = {
@@ -282,5 +319,22 @@ in
   testCallBakeDoesNotMutateOriginal = {
     expr = shallowScope.a.targets.t.args.VAL;
     expected = "base";
+  };
+
+  # ---------- scope.override / lib.override sugar ----------
+
+  testScopeOverrideAppliesAttrs = {
+    expr = scopeOverridden.test.targets.main.args.VAL;
+    expected = "overridden-via-override";
+  };
+
+  testScopeOverrideDoesNotMutateOriginal = {
+    expr = scope1.test.targets.main.args.VAL;
+    expected = "hello";
+  };
+
+  testLibOverridePropagates = {
+    expr = libOverrideScope.b.targets.t.contexts.root.args.VAL;
+    expected = "via-lib-override";
   };
 }
