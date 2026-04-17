@@ -30,7 +30,7 @@ let
         let
           libFunctions = {
             # Library primitives exposed for module consumption.
-            inherit (core) mkTarget mkContext;
+            inherit (core) mkTarget mkContext mkContextWith;
 
             # callBake: auto-inject function arguments from the scope, allow overrides.
             callBake =
@@ -58,6 +58,7 @@ let
                 forkedScope = nixLib.fix (nixLib.extends overlay scopeFn);
                 moduleLib = forkedScope.lib // {
                   mkContext = core.mkContext moduleName;
+                  mkContextWith = core.mkContextWith moduleName;
                 };
               in
               forkedScope.lib.callBake modulePath { lib = moduleLib; };
@@ -76,11 +77,12 @@ let
         // builtins.mapAttrs (
           moduleName: modulePath:
           let
-            # Per-module lib: mkContext is pre-applied with the module name
-            # so authors write `lib.mkContext ./path` instead of
+            # Per-module lib: mkContext/mkContextWith are pre-applied with the
+            # module name so authors write `lib.mkContext ./path` instead of
             # `lib.mkContext "kubeadm" ./path`.
             moduleLib = libFunctions // {
               mkContext = core.mkContext moduleName;
+              mkContextWith = core.mkContextWith moduleName;
             };
           in
           libFunctions.callBake modulePath { lib = moduleLib; }

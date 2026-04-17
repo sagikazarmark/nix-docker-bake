@@ -155,6 +155,14 @@ in
     expected = true;
   };
 
+  # Same guarantee for mkContextWith: the forked scope must pre-apply the
+  # registry key, otherwise `lib.mkContextWith { path = ...; }` inside the
+  # module would see mkContextWith as a lambda awaiting `prefix` and crash.
+  testCallBakeWithScopeMkContextWithIsStorePath = {
+    expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxWithStr != null;
+    expected = true;
+  };
+
   testCallBakeWithScopeMkContextUsesRegistryKey = {
     expr = cwsMkCtxForked.targets.t.args.VAL;
     expected = "overridden";
@@ -189,6 +197,21 @@ in
   # The auto-injected mkContext still produces a valid store path.
   testScopeMkContextIsStorePath = {
     expr = builtins.match "/nix/store/.*" mkCtxScope.my-module._ctxStr != null;
+    expected = true;
+  };
+
+  # lib.mkContextWith is pre-applied with the registry key in exactly the same
+  # way as lib.mkContext, so a module calling `lib.mkContextWith { path = ...; }`
+  # (no prefix arg) gets the module name baked into the store-path name.
+  testScopeMkContextWithAutoPrefix = {
+    expr = builtins.match ".*my-module-.*-context.*" mkCtxScope.my-module._ctxWithStr != null;
+    expected = true;
+  };
+
+  # Without a filter, scope-injected mkContextWith must match scope-injected
+  # mkContext hash-for-hash (same module, same path).
+  testScopeMkContextWithMatchesMkContext = {
+    expr = mkCtxScope.my-module._ctxWithStr == mkCtxScope.my-module._ctxStr;
     expected = true;
   };
 
