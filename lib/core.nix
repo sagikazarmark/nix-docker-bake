@@ -54,12 +54,30 @@ rec {
   #
   #   context = lib.mkContext "kubeadm" ./images/control-plane;
   #   # → /nix/store/<hash>-kubeadm-control-plane-context
-  mkContext =
-    prefix: srcPath:
-    builtins.path {
-      path = srcPath;
-      name = "${prefix}-${baseNameOf (toString srcPath)}-context";
-    };
+  mkContext = prefix: srcPath: mkContextWith prefix { path = srcPath; };
+
+  # mkContextWith: attrset-form variant of mkContext that additionally accepts
+  # an optional `filter` function (as in `builtins.path`) to exclude files
+  # from the imported context — useful for stripping dev artefacts, secrets,
+  # or unrelated sibling directories before Docker sees them.
+  #
+  #   context = lib.mkContextWith "app" {
+  #     path = ./images/api;
+  #     filter = p: t: baseNameOf p != "node_modules";
+  #   };
+  mkContextWith =
+    prefix:
+    {
+      path,
+      filter ? null,
+    }:
+    builtins.path (
+      {
+        inherit path;
+        name = "${prefix}-${baseNameOf (toString path)}-context";
+      }
+      // (if filter == null then { } else { inherit filter; })
+    );
 
   # Validate a module's return shape. Throws with a clear message identifying
   # the offending module path. Returns the module unchanged on success.

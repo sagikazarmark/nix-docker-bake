@@ -14,6 +14,7 @@ in
     mkTarget
     checkModule
     mkContext
+    mkContextWith
     ;
 
   # Scope and bake file generation

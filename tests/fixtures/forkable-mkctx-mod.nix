@@ -1,9 +1,11 @@
-# Test module used to verify that callBakeWithScope specializes lib.mkContext
-# the same way the default resolution path does. Consumes `val` from scope
-# so an overlay can observe the overridden value propagating through.
+# Test module used to verify that callBakeWithScope specializes both
+# lib.mkContext and lib.mkContextWith the same way the default resolution path
+# does. Consumes `val` from scope so an overlay can observe the overridden
+# value propagating through.
 { lib, val, ... }:
 let
   ctx = lib.mkContext ./.;
+  ctxWith = lib.mkContextWith { path = ./.; };
 in
 {
   namespace = "forkable";
@@ -15,4 +17,5 @@ in
   };
   groups = { };
   _ctxStr = toString ctx;
+  _ctxWithStr = toString ctxWith;
 }

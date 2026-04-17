@@ -45,6 +45,21 @@ context = mkContext "app" ./images/api;
 
 Inside a module resolved by `mkScope`, `lib.mkContext` is pre-applied with the module's registry key, so you write `lib.mkContext ./path` instead of `lib.mkContext "app" ./path`.
 
+## `mkContextWith prefix { path, filter ? null }`
+
+Attrset-form variant of `mkContext` that additionally accepts an optional `filter` function — the same `path -> type -> bool` predicate `builtins.path` takes.
+Use it to exclude files from the imported context (dev artefacts, secrets, unrelated sibling directories) before Docker sees them.
+The store-path name is derived the same way as `mkContext` (`${prefix}-${baseNameOf path}-context`); the filter participates in the content hash, so changing the filter produces a different store path.
+
+```nix
+context = mkContextWith "app" {
+  path = ./images/api;
+  filter = p: t: baseNameOf p != "node_modules";
+};
+```
+
+Inside a module resolved by `mkScope`, `lib.mkContextWith` is pre-applied with the module's registry key in the same way as `lib.mkContext`.
+
 ## `checkModule path module`
 
 Validates a module's return shape.

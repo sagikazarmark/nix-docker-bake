@@ -1,8 +1,9 @@
-# Test module that uses the scope-injected lib.mkContext (pre-applied with the
-# module's registry key). Used by ../scope.nix tests.
+# Test module that uses the scope-injected lib.mkContext and lib.mkContextWith
+# (both pre-applied with the module's registry key). Used by ../scope.nix tests.
 { lib, ... }:
 let
   ctx = lib.mkContext ./.;
+  ctxWith = lib.mkContextWith { path = ./.; };
 in
 {
   namespace = "ctxmod";
@@ -11,4 +12,5 @@ in
   };
   groups = { };
   _ctxStr = toString ctx;
+  _ctxWithStr = toString ctxWith;
 }
