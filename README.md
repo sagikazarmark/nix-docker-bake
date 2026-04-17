@@ -141,7 +141,7 @@ Choose based on how far you want the change to propagate:
 | You want to... | Use |
 |---|---|
 | Override a dep in one module, leave siblings alone | `callBake path { specificDep = ...; }` |
-| Override a config value everywhere, atomically | `callBakeWithScope path (final: prev: { key = ...; })` |
+| Override a config value everywhere, atomically | `callBakeWithScope "name" (final: prev: { key = ...; })` |
 | Override a value in some transitive deps but not others | `callBake path { ...; dep = callBake ../dep.nix { ... }; }` (selective) |
 
 ### Shallow override (`callBake`)
@@ -160,13 +160,14 @@ customApp = lib.callBake ./app/bake.nix {
 
 ### Deep override (`callBakeWithScope`)
 
-`callBakeWithScope path overlay` forks the entire scope with an overlay, then resolves the module in the forked scope.
+`callBakeWithScope name overlay` forks the entire scope with an overlay, then re-resolves the named module in the forked scope.
+`name` must be a key in the scope's `modules` attrset.
 Every transitive dependency re-resolves with the overlay applied.
 
 ```nix
 # Every module in the forked scope that reads appVersion sees v2.0.0,
 # including transitive deps.
-customApp = lib.callBakeWithScope ./app/bake.nix
+customApp = lib.callBakeWithScope "app"
   (final: prev: { appVersion = "v2.0.0"; });
 ```
 

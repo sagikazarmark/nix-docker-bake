@@ -58,7 +58,7 @@ let
   '';
   cwsBFile = builtins.toFile "cws-b.nix" ''
     { lib, ... }:
-    let a = lib.callBakeWithScope ${cwsAFile} (final: prev: { val = "overridden"; });
+    let a = lib.callBakeWithScope "a" (final: prev: { val = "overridden"; });
     in {
       namespace = "b";
       targets = { t = lib.mkTarget { context = ./.; contexts.root = a.targets.t; }; };
