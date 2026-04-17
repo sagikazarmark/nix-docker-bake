@@ -1,5 +1,5 @@
 # Target construction, context isolation, and module-shape validation.
-{
+rec {
   # Construct a target attrset with minimal defaults.
   # - Defaults `dockerfile` to "Dockerfile" (Docker Bake's own default)
   # - Throws if `context` is missing
@@ -18,15 +18,32 @@
         "passthru"
       ];
       unknownKeys = builtins.filter (k: !(builtins.elem k allowedKeys)) (builtins.attrNames attrs);
+      validated =
+        assert attrs ? context || throw "mkTarget: 'context' is required";
+        assert
+          unknownKeys == [ ]
+          || throw "mkTarget: unknown key(s): ${builtins.concatStringsSep ", " unknownKeys} (allowed: ${builtins.concatStringsSep ", " allowedKeys})";
+        {
+          dockerfile = "Dockerfile";
+        }
+        // attrs;
+      target = validated // {
+        # Extend this target with a patch. `f` is either an attrset (shorthand,
+        # ignores current values) or a function `old -> attrs` where `old` is
+        # the current target. The returned attrs shallow-merge onto the current
+        # target via `//`; the result is re-validated through `mkTarget` so
+        # unknown keys still throw, and the result carries its own
+        # `.overrideAttrs` for chaining.
+        overrideAttrs =
+          f:
+          let
+            patch = if builtins.isFunction f then f target else f;
+            merged = builtins.removeAttrs (target // patch) [ "overrideAttrs" ];
+          in
+          mkTarget merged;
+      };
     in
-    assert attrs ? context || throw "mkTarget: 'context' is required";
-    assert
-      unknownKeys == [ ]
-      || throw "mkTarget: unknown key(s): ${builtins.concatStringsSep ", " unknownKeys} (allowed: ${builtins.concatStringsSep ", " allowedKeys})";
-    {
-      dockerfile = "Dockerfile";
-    }
-    // attrs;
+    target;
 
   # Extend a base target with a patch. Atomic fields (context, dockerfile,
   # target, tags, platforms) are replaced when present in the patch. Attrset

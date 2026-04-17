@@ -1,6 +1,6 @@
 { bake, ... }:
 let
-  inherit (bake) mkTarget extendTarget;
+  inherit (bake) mkTarget;
 
   t1 = mkTarget { context = ./.; };
   t2 = mkTarget {
@@ -27,13 +27,53 @@ let
       B = "2";
     };
   };
-  extended = extendTarget baseTarget {
-    args = {
+
+  # Function form: merge by referencing old values.
+  mergedArgs = baseTarget.overrideAttrs (old: {
+    args = old.args // {
       B = "x";
       C = "3";
     };
+  });
+
+  # Function form: pure replacement (ignore old).
+  replacedArgs = baseTarget.overrideAttrs (_: {
+    args = {
+      Z = "9";
+    };
+  });
+
+  # Attrset form: shorthand for replacement (no `old` access).
+  shorthandReplaced = baseTarget.overrideAttrs {
+    args = {
+      Z = "9";
+    };
   };
-  extended2 = extendTarget baseTarget { tags = [ "t" ]; };
+
+  # Function form: append to a list (inexpressible under extendTarget).
+  withExtraTag =
+    let
+      base = mkTarget {
+        context = ./.;
+        tags = [ "a" ];
+      };
+    in
+    base.overrideAttrs (old: {
+      tags = old.tags ++ [ "b" ];
+    });
+
+  # Chaining: each call returns a target with its own overrideAttrs.
+  chained =
+    (baseTarget.overrideAttrs (_: {
+      args = {
+        X = "1";
+      };
+    })).overrideAttrs
+      (old: {
+        args = old.args // {
+          Y = "2";
+        };
+      });
 
   withCtx = mkTarget {
     context = ./.;
@@ -42,12 +82,12 @@ let
       config = "x";
     };
   };
-  extendedCtx = extendTarget withCtx {
-    contexts = {
+  mergedCtx = withCtx.overrideAttrs (old: {
+    contexts = old.contexts // {
       root = "override";
       extra = "new";
     };
-  };
+  });
 in
 {
   # ---------- mkTarget ----------
@@ -117,49 +157,82 @@ in
     expected = "oci://example/x:abc";
   };
 
-  # ---------- extendTarget ----------
+  # ---------- overrideAttrs ----------
 
-  testExtendTargetPreservesExistingArg = {
-    expr = extended.args.A;
+  testOverrideAttrsMergePreservesExistingArg = {
+    expr = mergedArgs.args.A;
     expected = "1";
   };
 
-  testExtendTargetOverridesArg = {
-    expr = extended.args.B;
+  testOverrideAttrsMergeOverridesArg = {
+    expr = mergedArgs.args.B;
     expected = "x";
   };
 
-  testExtendTargetAddsArg = {
-    expr = extended.args.C;
+  testOverrideAttrsMergeAddsArg = {
+    expr = mergedArgs.args.C;
     expected = "3";
   };
 
-  testExtendTargetLeavesArgsAloneWhenPatchingOtherFields = {
-    expr = extended2.args.A;
-    expected = "1";
+  testOverrideAttrsReplaceDropsOldArgs = {
+    expr = replacedArgs.args ? A;
+    expected = false;
   };
 
-  testExtendTargetAppliesNonArgFields = {
-    expr = extended2.tags;
-    expected = [ "t" ];
+  testOverrideAttrsReplaceSetsNewArgs = {
+    expr = replacedArgs.args.Z;
+    expected = "9";
   };
 
-  testExtendTargetMergesContextsOverride = {
-    expr = extendedCtx.contexts.root;
+  testOverrideAttrsAttrsetFormIsShorthand = {
+    expr = shorthandReplaced.args;
+    expected = {
+      Z = "9";
+    };
+  };
+
+  testOverrideAttrsAppendsToTags = {
+    expr = withExtraTag.tags;
+    expected = [
+      "a"
+      "b"
+    ];
+  };
+
+  testOverrideAttrsChainable = {
+    expr = chained.args;
+    expected = {
+      X = "1";
+      Y = "2";
+    };
+  };
+
+  testOverrideAttrsMergesContextsOverride = {
+    expr = mergedCtx.contexts.root;
     expected = "override";
   };
 
-  testExtendTargetMergesContextsPreserve = {
-    expr = extendedCtx.contexts.config;
+  testOverrideAttrsMergesContextsPreserve = {
+    expr = mergedCtx.contexts.config;
     expected = "x";
   };
 
-  testExtendTargetMergesContextsAdd = {
-    expr = extendedCtx.contexts.extra;
+  testOverrideAttrsMergesContextsAdd = {
+    expr = mergedCtx.contexts.extra;
     expected = "new";
   };
 
-  testExtendTargetPreservesPassthruWhenPatchOmitsIt =
+  testOverrideAttrsRejectsUnknownKeys = {
+    expr =
+      (builtins.tryEval (
+        baseTarget.overrideAttrs {
+          foo = "bar";
+        }
+      )).success;
+    expected = false;
+  };
+
+  testOverrideAttrsPreservesPassthruWhenNotTouched =
     let
       base = mkTarget {
         context = ./.;
@@ -167,14 +240,16 @@ in
           pushRef = "oci://example/x:abc";
         };
       };
-      patched = extendTarget base { tags = [ "t" ]; };
+      patched = base.overrideAttrs (_: {
+        tags = [ "t" ];
+      });
     in
     {
       expr = patched.passthru.pushRef;
       expected = "oci://example/x:abc";
     };
 
-  testExtendTargetPatchPassthruReplacesBase =
+  testOverrideAttrsReplacesPassthruWholesale =
     let
       base = mkTarget {
         context = ./.;
@@ -183,17 +258,38 @@ in
           b = "2";
         };
       };
-      # `a` is intentionally absent in the result: passthru is replaced
-      # wholesale by the patch, not merged like args/contexts.
-      patched = extendTarget base {
+      patched = base.overrideAttrs (_: {
         passthru = {
           b = "x";
         };
-      };
+      });
     in
     {
       expr = patched.passthru;
       expected = {
+        b = "x";
+      };
+    };
+
+  testOverrideAttrsMergesPassthruViaOld =
+    let
+      base = mkTarget {
+        context = ./.;
+        passthru = {
+          a = "1";
+          b = "2";
+        };
+      };
+      patched = base.overrideAttrs (old: {
+        passthru = old.passthru // {
+          b = "x";
+        };
+      });
+    in
+    {
+      expr = patched.passthru;
+      expected = {
+        a = "1";
         b = "x";
       };
     };
