@@ -25,6 +25,10 @@ t.overrideAttrs (old: { args = old.args // { FOO = "bar"; }; })
 
 # Append to tags (not expressible via any fixed merge policy).
 t.overrideAttrs (old: { tags = old.tags ++ [ "extra" ]; })
+
+# Chain: each call returns a target with its own .overrideAttrs.
+t.overrideAttrs (old: { args = old.args // { X = "1"; }; })
+ .overrideAttrs (old: { tags = old.tags ++ [ "latest" ]; })
 ```
 
 ## `mkContext prefix path`

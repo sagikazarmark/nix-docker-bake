@@ -4,6 +4,7 @@ rec {
   # - Defaults `dockerfile` to "Dockerfile" (Docker Bake's own default)
   # - Throws if `context` is missing
   # - Does NOT default `platforms` (that's consumer-supplied per target or via module)
+  # - Output carries an `.overrideAttrs` method (see below) for caller-driven extension
   mkTarget =
     attrs:
     let

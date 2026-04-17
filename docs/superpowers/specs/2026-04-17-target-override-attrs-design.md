@@ -41,7 +41,7 @@ Both forms return a new target. The returned attrs are merged onto `old` via `//
 ### Behaviour
 
 - **Shallow merge via `//`.** The result is `old // (f old)` where `f` normalises the attrset form into `_: attrs`.
-- **Validation.** The merged attrset goes back through `mkTarget`'s allowlist check, so unknown keys still throw. `context` is required in the result; an override that dropped `context` would fail.
+- **Validation.** The merged attrset goes back through `mkTarget`'s allowlist check, so unknown keys still throw. `context` remains required by construction: `//` cannot remove keys, so the base's `context` always carries through unless the patch explicitly sets it.
 - **Chainability.** The returned target has its own `.overrideAttrs` so `t.overrideAttrs(f).overrideAttrs(g)` works.
 - **`//` compatibility.** Plain `existing // { foo = ...; }` still works and preserves `.overrideAttrs` on the result, because `//` takes the left-hand side's field when the right-hand side doesn't set it.
 
@@ -97,7 +97,7 @@ The `removeAttrs` strip before re-calling `mkTarget` keeps `overrideAttrs` from 
 - Append to list: `t.overrideAttrs (old: { tags = old.tags ++ [ "extra" ]; })` — previously inexpressible.
 - Chaining: `t.overrideAttrs(f).overrideAttrs(g)` applies in order.
 - Validation survives override: unknown key in the patch throws.
-- Required field survives override: dropping `context` throws.
+- Plain `//` update: `t // { k = v; }` produces a result whose `.overrideAttrs` still works (carrier survives because `//` preserves left-hand keys not set by the right-hand side).
 - `passthru` round-trip: setting and reading `passthru` across an override.
 - `//` still works: `t // { target = "ready"; }` produces a target whose `.overrideAttrs` still functions.
 
