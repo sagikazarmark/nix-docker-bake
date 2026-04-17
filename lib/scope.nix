@@ -84,8 +84,11 @@ let
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
             };
+            resolved = libFunctions.callBake modulePath { lib = moduleLib; };
           in
-          libFunctions.callBake modulePath { lib = moduleLib; }
+          # _scope is attached AFTER callBake (which runs checkModule) so
+          # validation only sees consumer-authored keys. Do not reorder.
+          resolved // { _scope = self; }
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;

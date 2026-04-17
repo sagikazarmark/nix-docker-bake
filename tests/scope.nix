@@ -120,6 +120,14 @@ in
     expected = true;
   };
 
+  # Witness-style assertion: confirms the back-ref points at a scope with the
+  # expected shape. Avoids structural `==` on cyclic attrsets (the back-ref
+  # creates a cycle between the scope and its modules).
+  testMkScopeModuleCarriesScopeBackref = {
+    expr = scope1.modules.test._scope.test.targets.main.args.VAL;
+    expected = "hello";
+  };
+
   # ---------- string-path modules ----------
 
   testMkScopeAcceptsStringPaths = {
