@@ -183,6 +183,8 @@ in
           b = "2";
         };
       };
+      # `a` is intentionally absent in the result: passthru is replaced
+      # wholesale by the patch, not merged like args/contexts.
       patched = extendTarget base {
         passthru = {
           b = "x";
