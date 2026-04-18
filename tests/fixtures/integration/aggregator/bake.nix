@@ -5,7 +5,6 @@
   ...
 }:
 {
-  namespace = "aggregator";
   targets = { };
   groups = {
     default = [

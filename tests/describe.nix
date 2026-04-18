@@ -5,7 +5,6 @@ let
   testScope = {
     modules = {
       foo = {
-        namespace = "foo";
         targets = {
           main = {
             context = ./.;

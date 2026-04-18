@@ -8,9 +8,9 @@ let
   ctxWith = lib.mkContextWith { path = ./.; };
 in
 {
-  namespace = "forkable";
   targets = {
     t = lib.mkTarget {
+      name = "t";
       context = ctx;
       args.VAL = val;
     };

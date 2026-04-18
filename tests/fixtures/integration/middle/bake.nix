@@ -12,6 +12,7 @@ let
   };
 
   baseTarget = lib.mkTarget {
+    name = "base";
     context = lib.mkContext ./image;
     target = "base";
     inherit platforms;
@@ -21,11 +22,16 @@ let
     inherit args;
   };
 
+  # `//` composition silently inherits `name` from the LHS, so every derived
+  # target must explicitly set its own name to match its registration key —
+  # otherwise wire-format identity collides with `baseTarget`.
   ready = baseTarget // {
+    name = "ready";
     target = "ready";
   };
 
   main = baseTarget // {
+    name = "main";
     target = null;
     contexts = {
       root = base.targets.main;
@@ -34,7 +40,6 @@ let
   };
 in
 {
-  namespace = "middle";
   targets = {
     inherit main;
     base = baseTarget;

@@ -5,8 +5,7 @@ let
   moduleFile = builtins.toFile "bake-file-mod.nix" ''
     { lib, myConfigValue, ... }:
     {
-      namespace = "test";
-      targets = { main = lib.mkTarget { context = ./.; args.VAL = myConfigValue; }; };
+      targets = { main = lib.mkTarget { name = "main"; context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
     }
   '';
@@ -45,10 +44,9 @@ let
   groupModuleFile = builtins.toFile "bake-file-group-mod.nix" ''
     { lib, version ? "v1.0.0", ... }:
     let
-      main = lib.mkTarget { context = ./.; args.VERSION = version; };
-      worker = lib.mkTarget { context = ./.; args.VERSION = version; };
+      main = lib.mkTarget { name = "main"; context = ./.; args.VERSION = version; };
+      worker = lib.mkTarget { name = "worker"; context = ./.; args.VERSION = version; };
     in {
-      namespace = "demo";
       targets = { inherit main worker; };
       groups.default = [ main worker ];
     }
@@ -75,14 +73,14 @@ let
   ctxRefModuleFile = builtins.toFile "bake-file-ctxref-mod.nix" ''
     { lib, version ? "v1.0.0", ... }:
     let
-      base = lib.mkTarget { context = ./.; args.VERSION = version; };
+      base = lib.mkTarget { name = "base"; context = ./.; args.VERSION = version; };
       derived = lib.mkTarget {
+        name = "derived";
         context = ./.;
         args.VERSION = version;
         contexts.base = base;
       };
     in {
-      namespace = "ctxref";
       targets = { inherit base derived; };
       groups = {};
     }

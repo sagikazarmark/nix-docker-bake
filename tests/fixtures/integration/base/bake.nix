@@ -7,6 +7,7 @@
 }:
 let
   main = lib.mkTarget {
+    name = "main";
     context = lib.mkContext ./.;
     inherit platforms;
     contexts = {
@@ -15,7 +16,6 @@ let
   };
 in
 {
-  namespace = "base";
   targets = {
     inherit main;
   };

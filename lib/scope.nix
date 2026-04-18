@@ -40,6 +40,34 @@ let
           # (final: prev: ...) form (e.g., self-referential rewrites).
           override = attrs: extend (_: _: attrs);
 
+          # Validate that every registered target's `name` field matches
+          # its attrset key. Catches the three silent-collision idioms:
+          #   (1) let-binding identifier ≠ attrset key
+          #   (2) `//` composition silently inheriting `name` from LHS
+          #   (3) project-level wrapper helpers compounding (1) or (2)
+          # Fires at module-registration time, before mkBakeFile ever
+          # runs — fail-fast on a typo. Uses `builtins.all` (strict on
+          # its elements) to force each per-target validation eagerly,
+          # so the throw fires when the module is registered, not when
+          # someone later accesses `module.targets.<key>`.
+          checkTargetNames =
+            modName: targets:
+            let
+              validate =
+                key:
+                let
+                  target = targets.${key};
+                in
+                if !(target ? name) then
+                  throw "module '${modName}': targets.${key} is missing the required 'name' field. Add `name = \"${key}\"` to the mkTarget call."
+                else if target.name != key then
+                  throw "module '${modName}': targets.${key} has name '${target.name}' but is registered under key '${key}'. The `name` field and the attrset key must match — did you derive this target via `//` or `overrideAttrs` and forget to set `name = \"${key}\"` on the patch?"
+                else
+                  true;
+              allValid = builtins.all validate (builtins.attrNames targets);
+            in
+            if allValid then targets else throw "unreachable";
+
           libFunctions = {
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
@@ -48,19 +76,29 @@ let
             # The returned module carries `.override`: a per-instance argument
             # swap that re-runs the module function with new args, leaving the
             # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
-            # `_scope` is attached here so it survives override chains and the
-            # result remains usable with `mkBakeFile`.
+            # `_scope` is retained for backward compatibility (some consumers
+            # may read it); the serializer no longer depends on it.
+            #
+            # callBake invoked at the user level (outside mkScope's per-module
+            # mapAttrs) does NOT stamp `namespace` on the returned module
+            # value — the user is expected to supply a `lib` whose `mkTarget`
+            # is curried with the desired namespace if they intend to serialize
+            # the result. The registered-module path below handles the common
+            # case automatically.
             callBake =
               modulePath: overrides:
               let
                 fn = import modulePath;
                 autoArgs = builtins.intersectAttrs (builtins.functionArgs fn) self;
+                pathLabel = baseNameOf (toString modulePath);
                 mkModule =
                   extraArgs:
                   let
-                    module = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
+                    raw = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
+                    checked =
+                      if raw ? targets then raw // { targets = checkTargetNames pathLabel raw.targets; } else raw;
                   in
-                  module // { _scope = self; };
+                  checked // { _scope = self; };
               in
               nixLib.makeOverridable mkModule { };
 
@@ -79,13 +117,30 @@ let
           let
             # Per-module lib: mkContext/mkContextWith are pre-applied with the
             # module name so authors write `lib.mkContext ./path` instead of
-            # `lib.mkContext "kubeadm" ./path`.
+            # `lib.mkContext "kubeadm" ./path`. mkTarget is curried with
+            # `namespace = moduleName` so every target constructed inside a
+            # module is born with its namespace intrinsic to the value — the
+            # serializer never has to reverse-look-up which module a target
+            # came from.
             moduleLib = libFunctions // {
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
+              mkTarget = attrs: core.mkTarget (attrs // { namespace = moduleName; });
             };
+            # Stamp `namespace = moduleName` on the module value (the registry
+            # key IS the namespace under D1=a). Recursively re-applies through
+            # `.override` so chained overrides preserve the stamp. The module
+            # function no longer needs to return a `namespace` field; if it
+            # does, the registry-key stamp wins.
+            stampNamespace =
+              mod:
+              mod
+              // {
+                namespace = moduleName;
+                override = newArgs: stampNamespace (mod.override newArgs);
+              };
           in
-          libFunctions.callBake modulePath { lib = moduleLib; }
+          stampNamespace (libFunctions.callBake modulePath { lib = moduleLib; })
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;
@@ -95,8 +150,8 @@ let
 
   # Generate a docker-bake.json file as a Nix-store path.
   # Takes a resolved module value (from scope.modules.X or scope.X).
-  # The module carries a _scope back-reference so cross-module target
-  # identity resolution in the serializer has what it needs.
+  # Identity resolution happens entirely off the target values themselves
+  # (each carries `name`+`namespace`), so `_scope` is no longer load-bearing.
   #
   # builtins.unsafeDiscardStringContext is needed because builtins.toFile
   # cannot reference store paths produced by builtins.path (used by mkContext).
@@ -105,10 +160,7 @@ let
   mkBakeFile =
     module:
     let
-      scope =
-        module._scope
-          or (throw "mkBakeFile: module is missing _scope back-reference; was it produced by mkScope?");
-      serialized = serialize.serialize scope module;
+      serialized = serialize.serialize module;
     in
     builtins.toFile "docker-bake.json" (
       builtins.unsafeDiscardStringContext (builtins.toJSON serialized)

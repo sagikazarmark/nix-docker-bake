@@ -8,6 +8,7 @@
 }:
 let
   primary = lib.mkTarget {
+    name = "primary";
     context = lib.mkContext ./images/primary;
     inherit platforms;
     contexts = {
@@ -20,6 +21,7 @@ let
   };
 
   secondary = lib.mkTarget {
+    name = "secondary";
     context = lib.mkContext ./images/secondary;
     inherit platforms;
     contexts = {
@@ -29,7 +31,6 @@ let
   };
 in
 {
-  namespace = "top";
   targets = {
     inherit primary secondary;
   };
