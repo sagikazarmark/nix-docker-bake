@@ -50,24 +50,22 @@ rec {
   # mkContext: import a Docker build context as an isolated store path.
   # The store-path hash depends ONLY on the directory's contents, not the
   # entire repo — preventing Docker cache busting when unrelated files
-  # change. The `prefix` is prepended to the basename for uniqueness
-  # (e.g., two modules with `./image` won't collide).
+  # change.
   #
-  #   context = lib.mkContext "kubeadm" ./images/control-plane;
-  #   # → /nix/store/<hash>-kubeadm-control-plane-context
-  mkContext = prefix: srcPath: mkContextWith prefix { path = srcPath; };
+  #   context = lib.mkContext ./images/control-plane;
+  #   # → /nix/store/<hash>-control-plane-context
+  mkContext = srcPath: mkContextWith { path = srcPath; };
 
   # mkContextWith: attrset-form variant of mkContext that additionally accepts
   # an optional `filter` function (as in `builtins.path`) to exclude files
   # from the imported context — useful for stripping dev artefacts, secrets,
   # or unrelated sibling directories before Docker sees them.
   #
-  #   context = lib.mkContextWith "app" {
+  #   context = lib.mkContextWith {
   #     path = ./images/api;
   #     filter = p: t: baseNameOf p != "node_modules";
   #   };
   mkContextWith =
-    prefix:
     {
       path,
       filter ? null,
@@ -75,7 +73,7 @@ rec {
     builtins.path (
       {
         inherit path;
-        name = "${prefix}-${baseNameOf (toString path)}-context";
+        name = "${baseNameOf (toString path)}-context";
       }
       // (if filter == null then { } else { inherit filter; })
     );

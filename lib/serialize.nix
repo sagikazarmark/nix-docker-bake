@@ -254,9 +254,9 @@ let
       groupNames = builtins.attrNames groups;
 
       processGroupMember =
-        acc: i: member:
+        acc: member:
         let
-          syntheticName = "group__${acc.groupName}__${toString (i + 1)}";
+          syntheticName = "group__${acc.groupName}__${toString (builtins.length acc.ids + 1)}";
           id = resolveId firstLevelNameToHash firstLevelHashIndex member syntheticName;
           acc' = walkTarget {
             inherit firstLevelNameToHash firstLevelHashIndex;
@@ -275,11 +275,7 @@ let
             inherit groupName;
             ids = [ ];
           };
-          indexedMembers = builtins.genList (i: {
-            inherit i;
-            m = builtins.elemAt members i;
-          }) (builtins.length members);
-          afterMembers = builtins.foldl' (a: im: processGroupMember a im.i im.m) innerAcc indexedMembers;
+          afterMembers = builtins.foldl' processGroupMember innerAcc members;
           checkedIds = checkGroupDuplicates groupName afterMembers.ids;
         in
         acc
