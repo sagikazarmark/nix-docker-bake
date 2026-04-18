@@ -3,44 +3,37 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
+
+    systems.url = "github:nix-systems/default";
   };
 
   outputs =
-    { self, nixpkgs }:
-    let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
+    inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = import inputs.systems;
 
-      forAllSystems =
-        f:
-        nixpkgs.lib.genAttrs systems (
-          system:
-          f {
-            inherit system;
-            pkgs = nixpkgs.legacyPackages.${system};
-          }
-        );
-    in
-    {
-      lib = import ./lib { };
+      flake = {
+        lib = import ./lib { };
+      };
 
-      checks = forAllSystems (
+      perSystem =
         { pkgs, ... }:
         {
-          tests = pkgs.writeText "bake-tests" (
-            import ./tests {
-              inherit (pkgs) lib;
+          checks = {
+            tests = pkgs.writeText "bake-tests" (
+              import ./tests {
+                inherit (pkgs) lib;
+                bake = import ./lib { };
+              }
+            );
+          };
 
-              bake = self.lib;
-            }
-          );
-        }
-      );
-
-      formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
+          formatter = pkgs.nixfmt-tree;
+        };
     };
 }
