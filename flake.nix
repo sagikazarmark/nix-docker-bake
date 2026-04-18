@@ -19,6 +19,7 @@
 
       imports = [
         ./nix/lib.nix
+        ./nix/overlay.nix
       ];
 
       perSystem =
