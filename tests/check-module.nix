@@ -26,7 +26,9 @@ in
   # per-module curry stamps namespace from the registry key instead).
   testCheckModuleToleratesLegacyNamespace = {
     expr = checkModule ./x (validModule // { namespace = "legacy"; });
-    expected = validModule // { namespace = "legacy"; };
+    expected = validModule // {
+      namespace = "legacy";
+    };
   };
 
   testCheckModuleThrowsNonAttrsetTargets = {

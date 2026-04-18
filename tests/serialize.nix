@@ -71,8 +71,16 @@ let
 
   # ---------- groups ----------
   groupTargets = {
-    ga = mkTarget { name = "ga"; namespace = "grp"; context = ./ga; };
-    gb = mkTarget { name = "gb"; namespace = "grp"; context = ./gb; };
+    ga = mkTarget {
+      name = "ga";
+      namespace = "grp";
+      context = ./ga;
+    };
+    gb = mkTarget {
+      name = "gb";
+      namespace = "grp";
+      context = ./gb;
+    };
   };
   groupModule = {
     namespace = "grp";
@@ -90,7 +98,11 @@ let
   onlyTargetsModule = {
     namespace = "ot";
     targets = {
-      main = mkTarget { name = "main"; namespace = "ot"; context = ./ot; };
+      main = mkTarget {
+        name = "main";
+        namespace = "ot";
+        context = ./ot;
+      };
     };
   };
   serialized9 = serialize onlyTargetsModule;
@@ -159,7 +171,10 @@ let
     namespace = "dup";
     targets = { };
     groups = {
-      default = [ dupTargetX dupTargetY ];
+      default = [
+        dupTargetX
+        dupTargetY
+      ];
     };
   };
 

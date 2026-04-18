@@ -113,15 +113,22 @@ let
   checkGroupDuplicates =
     groupName: ids:
     let
-      seen = builtins.foldl' (
-        s: id:
-        if builtins.elem id s.dups then
-          s
-        else if builtins.elem id s.ids then
-          s // { dups = s.dups ++ [ id ]; }
-        else
-          s // { ids = s.ids ++ [ id ]; }
-      ) { ids = [ ]; dups = [ ]; } ids;
+      seen =
+        builtins.foldl'
+          (
+            s: id:
+            if builtins.elem id s.dups then
+              s
+            else if builtins.elem id s.ids then
+              s // { dups = s.dups ++ [ id ]; }
+            else
+              s // { ids = s.ids ++ [ id ]; }
+          )
+          {
+            ids = [ ];
+            dups = [ ];
+          }
+          ids;
     in
     if seen.dups == [ ] then
       ids

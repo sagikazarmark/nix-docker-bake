@@ -7,7 +7,10 @@ let
 in
 {
   targets = {
-    main = lib.mkTarget { name = "main"; context = ctx; };
+    main = lib.mkTarget {
+      name = "main";
+      context = ctx;
+    };
   };
   groups = { };
   _ctxStr = toString ctx;

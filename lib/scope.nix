@@ -96,10 +96,7 @@ let
                   let
                     raw = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
                     checked =
-                      if raw ? targets then
-                        raw // { targets = checkTargetNames pathLabel raw.targets; }
-                      else
-                        raw;
+                      if raw ? targets then raw // { targets = checkTargetNames pathLabel raw.targets; } else raw;
                   in
                   checked // { _scope = self; };
               in

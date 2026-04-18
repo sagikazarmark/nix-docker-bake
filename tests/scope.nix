@@ -474,10 +474,12 @@ in
   # Idiom 1: explicit name vs key mismatch throws at module load.
   testRegistrationRejectsNameKeyMismatch = {
     expr =
-      (builtins.tryEval (mkScope {
-        config = { };
-        modules.nm = nameMismatchFile;
-      }).nm.targets).success;
+      (builtins.tryEval
+        (mkScope {
+          config = { };
+          modules.nm = nameMismatchFile;
+        }).nm.targets
+      ).success;
     expected = false;
   };
 
@@ -485,20 +487,24 @@ in
   # than its inherited name → throws at module load.
   testRegistrationRejectsSlashInheritedName = {
     expr =
-      (builtins.tryEval (mkScope {
-        config = { };
-        modules.si = slashInheritFile;
-      }).si.targets).success;
+      (builtins.tryEval
+        (mkScope {
+          config = { };
+          modules.si = slashInheritFile;
+        }).si.targets
+      ).success;
     expected = false;
   };
 
   # Idiom 3: target without a name field at all → throws at module load.
   testRegistrationRejectsMissingName = {
     expr =
-      (builtins.tryEval (mkScope {
-        config = { };
-        modules.mn = missingNameFile;
-      }).mn.targets).success;
+      (builtins.tryEval
+        (mkScope {
+          config = { };
+          modules.mn = missingNameFile;
+        }).mn.targets
+      ).success;
     expected = false;
   };
 }
