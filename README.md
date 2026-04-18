@@ -43,6 +43,8 @@ This scaffolds a minimal `flake.nix`, `bake.nix`, and `Dockerfile`.
 
 ## Installation
 
+### As a direct input
+
 Add the library as a flake input:
 
 ```nix
@@ -51,6 +53,23 @@ Add the library as a flake input:
   inputs.bake.url = "github:sagikazarmark/nix-docker-bake";
   inputs.bake.inputs.nixpkgs.follows = "nixpkgs";
 }
+```
+
+### Via overlay
+
+Alternatively, consume the library through the provided overlay to make it available as `pkgs.bake.lib`:
+
+```nix
+inputs.bake.url = "github:sagikazarmark/nix-docker-bake";
+
+outputs = { nixpkgs, bake, ... }:
+  let
+    pkgs = import nixpkgs {
+      system = "x86_64-linux";
+      overlays = [ bake.overlays.default ];
+    };
+  in
+  pkgs.bake.lib.mkBakeFile /* ... */;
 ```
 
 ## Usage
@@ -326,6 +345,17 @@ nix flake check
 - The generated JSON contains absolute Nix store paths, so it should not be committed; regenerate it via `nix build` on each use.
 - `mkTarget` rejects unknown keys but does not type-check the values of known ones.
   Malformed values (e.g., a non-list `tags`) surface as errors at serialization time or inside Docker Bake itself.
+
+## Development
+
+A devshell with the project's tooling is available:
+
+```
+nix develop              # enter devshell (nix-unit, nixdoc, nixd, treefmt)
+nix flake check          # run all checks (tests, formatting, API doc drift)
+nix fmt                  # format the tree
+scripts/gen-api-docs.sh  # regenerate API.md after editing lib doc comments
+```
 
 ## License
 
