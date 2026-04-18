@@ -164,6 +164,7 @@ Choose based on how far you want the change to propagate:
 
 | You want to... | Use |
 |---|---|
+| Swap a single arg on a module already in the scope | `scope.<name>.override { arg = ...; }` |
 | Override a dep in one module, leave siblings alone | `lib.callBake path { dep = ...; }` |
 | Replace a config value everywhere in the scope | `(lib.override { key = ...; }).modules.<name>` |
 | Same, with access to prior values (overlay form) | `(lib.extend (final: prev: { key = ...; })).modules.<name>` |

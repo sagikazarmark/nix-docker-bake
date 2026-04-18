@@ -45,14 +45,24 @@ let
             inherit (core) mkTarget mkContext mkContextWith;
 
             # callBake: auto-inject function arguments from the scope, allow overrides.
+            # The returned module carries `.override`: a per-instance argument
+            # swap that re-runs the module function with new args, leaving the
+            # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
+            # `_scope` is attached here so it survives override chains and the
+            # result remains usable with `mkBakeFile`.
             callBake =
               modulePath: overrides:
               let
                 fn = import modulePath;
                 autoArgs = builtins.intersectAttrs (builtins.functionArgs fn) self;
-                module = fn (autoArgs // overrides);
+                mkModule =
+                  extraArgs:
+                  let
+                    module = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
+                  in
+                  module // { _scope = self; };
               in
-              core.checkModule modulePath module;
+              nixLib.makeOverridable mkModule { };
 
             inherit extend override;
           };
@@ -74,11 +84,8 @@ let
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
             };
-            resolved = libFunctions.callBake modulePath { lib = moduleLib; };
           in
-          # _scope is attached AFTER callBake (which runs checkModule) so
-          # validation only sees consumer-authored keys. Do not reorder.
-          resolved // { _scope = self; }
+          libFunctions.callBake modulePath { lib = moduleLib; }
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;

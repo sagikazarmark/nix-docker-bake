@@ -83,6 +83,29 @@ The module carries a hidden back-reference to its originating scope, which the s
 bakeFile = bake.lib.mkBakeFile scope.modules.hello;
 ```
 
+## `module.override attrs`
+
+Every resolved module in a scope (`scope.<name>`, `scope.modules.<name>`, or the result of `lib.callBake`) carries an `.override` method that re-evaluates the module with `attrs` shallow-merged onto its current arguments.
+The override is local to the returned instance: the scope and sibling modules are unaffected.
+Mirrors the `pkg.override` idiom from nixpkgs.
+The result carries its own `.override`, so calls chain.
+The result also retains the `_scope` back-reference, so it is directly usable with `mkBakeFile`.
+
+Use this when you want to swap a single argument on a single module, whether the argument is declared inline in the module or pulled in from scope config.
+For scope-wide changes that affect every module reading a key, reach for `scope.override` / `scope.extend` instead.
+
+```nix
+# One-off variant.
+devApp = scope.app.override { appVersion = "v2.0.0"; };
+
+# Build a compatibility matrix without forking the scope.
+variants = map (v: scope.app.override { appVersion = v; }) [ "v1" "v2" "v3" ];
+
+# Chain: each call returns a module with its own .override.
+scope.app.override { appVersion = "v2.0.0"; }
+  .override { extraArg = true; }
+```
+
 ## `scope.extend overlay`
 
 Method on the scope returned by `mkScope`.
@@ -109,10 +132,9 @@ devScope = scope.override { appVersion = "v2.0.0"; };
 
 Available on the per-module `lib` injected into modules resolved by `mkScope`.
 Resolves the module at `path` with its function arguments auto-injected from the scope, and applies `overrides` as a per-call replacement attrset.
-Returns a resolved module value, suitable for use as a dependency of another module.
-Unlike `scope.modules.<name>`, the returned value has no `_scope` back-reference, so it is not directly serializable via `mkBakeFile`.
+Returns a resolved module value (with `_scope` attached and an `.override` method, just like `scope.modules.<name>`), suitable for use as a dependency of another module or directly with `mkBakeFile`.
 
-Use this when you want to re-resolve a single module with a different argument — siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead.
+Use this when you want to re-resolve a single module with a different argument: siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead. For an `.override`-style swap on a module already resolved through the scope, prefer `scope.<name>.override`.
 
 ```nix
 # Inside a bake module
