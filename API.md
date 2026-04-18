@@ -7,6 +7,19 @@ Defaults `dockerfile` to `"Dockerfile"`.
 Throws if `context` is missing.
 Does not default `platforms`.
 
+### Identity fields: `name` and `namespace`
+
+Targets self-identify via two fields on the value:
+
+- **`name`** — the target's wire-format identifier (the key under which it appears in the generated `docker-bake.json`).
+  Optional at construction; required when registering the target under `targets.<key>`, where it must equal `<key>`.
+  When a target is used inline in a group or context without being registered, an absent `name` falls through to a synthetic `group__<n>__<i>` or `<parent>__<ctx>` identifier.
+- **`namespace`** — the module's namespace, used to disambiguate targets across modules in cross-module references (`<namespace>_<name>`).
+  Auto-injected when the target is constructed via the per-module `lib.mkTarget` (see [`mkScope`](#mkscope--config-modules-) below).
+  Required at serialize time; a target reaching the serializer with a `name` but no `namespace` is treated as a hand-construction error and throws with a clear message pointing at the per-module `lib.mkTarget`.
+
+`name` and `namespace` are identity metadata and do **not** appear in the serialized target body — only as the wire-format key.
+
 ## `target.overrideAttrs f`
 
 Every target produced by `mkTarget` carries an `.overrideAttrs` method.
@@ -31,6 +44,27 @@ t.overrideAttrs (old: { tags = old.tags ++ [ "extra" ]; })
 (t.overrideAttrs (old: { args = old.args // { X = "1"; }; }))
   .overrideAttrs (old: { tags = old.tags ++ [ "latest" ]; })
 ```
+
+### Composition and `name` inheritance
+
+Both `overrideAttrs` and plain `//` shallow-merge inherit the source target's `name` field by default.
+If you derive a new target intended to be registered under a different attrset key, you **must** set `name` explicitly on the patch — otherwise the wire-format identity collides with the source, and the registration check throws at module-load time:
+
+```nix
+# overrideAttrs form
+variant = base.overrideAttrs (old: {
+  name = "variant";                 # required if registering under `targets.variant`
+  args = old.args // { X = "1"; };
+});
+
+# `//` form — same rule applies
+derived = base // {
+  name = "derived";
+  tags = [ "extra" ];
+};
+```
+
+The library's `targets.<key>`-must-match-`name` check (see [`mkScope`](#mkscope--config-modules-)) catches the omission with an error pointing at the offending key.
 
 ## `mkContext prefix path`
 
@@ -63,8 +97,11 @@ Inside a module resolved by `mkScope`, `lib.mkContextWith` is pre-applied with t
 ## `checkModule path module`
 
 Validates a module's return shape.
-Throws with a descriptive message identifying the offending module path.
+Module shape: `{ targets?; groups?; passthru?; }` — every field optional.
+Throws with a descriptive message identifying the offending module path on shape errors.
 Called internally by `mkScope` after each module is resolved; exposed for consumer-side validation.
+
+A module that still returns a `namespace` field is tolerated for transitional compatibility, but the field is ignored — the module's namespace is its registry key in `mkScope` (see below).
 
 ## `mkScope { config, modules }`
 
@@ -72,12 +109,34 @@ The main entry point.
 Takes a `config` attrset and an attrset of `name -> path` module references (where path may be a Nix path or a string), builds a fixed-point scope, and validates each resolved module.
 Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `override`, `modules`).
 
+The registry key under which a module is registered (`mkScope { modules.<key> = ...; }`) becomes the module's namespace.
+The per-module `lib.mkTarget` injected into the module function is curried with that namespace, so every target the author constructs is born with `namespace = <key>` intrinsic to the value.
+
+After a module is resolved, `mkScope` validates that every target's `name` field equals its attrset key in `targets`:
+
+```nix
+# OK
+targets.main = lib.mkTarget { name = "main"; ... };
+
+# Throws at module-load time
+targets.main = lib.mkTarget { name = "mian"; ... };  # name typo
+targets.main = base // { tags = [ "x" ]; };          # // inherits base.name = "base"
+```
+
+The check catches three common silent-collision idioms:
+
+1. Let-binding identifier ≠ attrset key (`let x = mkTarget { name = "x"; ... }; in { targets."x-debug" = x; }` — name is "x", key is "x-debug").
+2. `//` composition silently inheriting `name` from the LHS without an explicit override on the patch.
+3. Project-level wrapper helpers compounding (1) or (2).
+
 ## `mkBakeFile module`
 
 Serializes a module's target graph and writes it via `builtins.toFile`.
 Returns a Nix store path directly usable with `docker buildx bake -f`.
 The argument is a resolved module value (typically obtained from `scope.modules.<name>` or from `scope.<name>`).
-The module carries a hidden back-reference to its originating scope, which the serializer uses to resolve cross-module target identities.
+
+Identity resolution reads `name` and `namespace` directly off each target value — there is no reverse lookup, no scope back-reference, no closure-pointer comparison.
+This makes `.override` and `lib.extend` re-evaluations produce byte-identical bake files when the inputs are equivalent.
 
 ```nix
 bakeFile = bake.lib.mkBakeFile scope.modules.hello;

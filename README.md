@@ -52,20 +52,23 @@ Add the library as a flake input:
 ### Modules
 
 A module groups a set of targets under a namespace.
+The namespace is the module's registry key in `mkScope` (see [Bake files](#bake-files) below); modules don't declare it themselves.
 `lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated build context.
+
+Each target carries an explicit `name` field — its identifier in the generated bake file — which must match the attrset key the target is registered under.
 
 ```nix
 # hello.nix
 { lib, ... }:
 let
   main = lib.mkTarget {
+    name    = "main";
     context = lib.mkContext ./.;
     tags    = [ "ghcr.io/me/hello:latest" ];
   };
 in
 {
-  namespace = "hello";
-  targets   = { inherit main; };
+  targets = { inherit main; };
 }
 ```
 
@@ -106,19 +109,20 @@ A realistic example with config values and a sibling dependency:
 { lib, appVersion, base, ... }:
 let
   main = lib.mkTarget {
+    name    = "main";
     context = lib.mkContext ./.;
     contexts.base = base.targets.main; # cross-module dep; wiring explained below
     args = { APP_VERSION = appVersion; };
     tags = [ "myorg/myapp" ];
   };
   debug = lib.mkTarget {
+    name    = "debug";
     context = lib.mkContext ./.;
-    target = "debug";
-    args = { APP_VERSION = appVersion; };
+    target  = "debug";
+    args    = { APP_VERSION = appVersion; };
   };
 in
 {
-  namespace = "app";
   targets = { inherit main debug; };
   groups = {
     default = [ main ];        # `docker buildx bake default` builds main
@@ -127,35 +131,60 @@ in
 }
 ```
 
+Each `mkTarget` call sets an explicit `name` — the identifier the target gets in the generated bake file (`docker buildx bake <name>`).
+The library checks that this `name` matches the attrset key the target is registered under (`targets.main` ↔ `name = "main"`); a mismatch throws at module-load time.
+
 `contexts` is Docker Bake's attribute for declaring [named build contexts](https://docs.docker.com/build/bake/contexts/): extra inputs that a Dockerfile can reference via `FROM name` or `COPY --from=name`.
-Passing a target attrset as a `contexts.<name>` value (as with `contexts.base = base.targets.main` above) is how cross-module target dependencies are wired.
+Passing a target value as a `contexts.<name>` value (as with `contexts.base = base.targets.main` above) is how cross-module target dependencies are wired.
 The serializer translates the reference into a `target:<id>` entry in the bake file, which tells Docker Bake to build the upstream target first and make its output available to the downstream build.
-When the referenced target lives in another module, `<id>` is namespace-prefixed (see [Namespace vs registry key](#namespace-vs-registry-key)); within the same module it's bare.
+When the referenced target lives in another module, `<id>` is namespace-prefixed (`base_main` for the example above); within the same module it's bare.
 
 Groups map directly to Docker Bake's group concept:
 each key becomes a group you can invoke by name with `docker buildx bake <group>`, and its value is the list of targets built when the group is invoked.
-The list elements are target attrsets (not string names); the library resolves each into its serialized ID.
-Group names in the serialized output are not namespace-prefixed (unlike cross-module target IDs; see [Namespace vs registry key](#namespace-vs-registry-key)).
+The list elements are target values; the library reads each value's `name` to compute the wire-format identifier.
+Group names themselves are not namespace-prefixed.
 
-### Namespace vs registry key
+### Namespace = registry key
 
-A module's `namespace` attribute and its key in the `modules` registry are separate concepts.
-The registry key determines how sibling modules reference it via function args.
-The namespace determines how its targets are identified in the serialized output: bare `<target-name>` within the same module, `<namespace>_<target-name>` when referenced across modules.
-
-Convention: match them unless you have a specific reason not to.
-The library does not enforce equality, but diverging names can be confusing.
+The module's namespace is the registry key it's registered under in `mkScope`.
+The namespace determines how the module's targets appear in the serialized output: bare `<target-name>` within the same module, `<namespace>_<target-name>` when referenced from another module.
 
 ```nix
 scope = mkScope {
   modules = {
-    app = ./services/app/bake.nix;  # registry key: app
+    app = ./services/app/bake.nix;  # registry key "app" → namespace "app"
   };
 };
-# Inside app/bake.nix, module returns { namespace = "app"; ... }
-# Sibling modules do `{ app, ... }:` (using the key)
-# Cross-module references use `app_main`, `app_debug` (namespace-prefixed); within the app module itself they stay bare.
+# Inside app/bake.nix the module function takes args (lib, ...) — no need to declare a namespace.
+# Sibling modules in the same scope refer to it as `{ app, ... }:` (using the key).
+# Cross-module references serialize as `app_main`, `app_debug`; within the app module itself they stay bare.
 ```
+
+The per-module `lib.mkTarget` is curried with `namespace = <registry-key>`, so every target constructed inside the module is born with its namespace intrinsic to the value.
+You don't write the namespace on individual targets; the library handles it.
+
+### Composing targets with `//` and `overrideAttrs`
+
+Both `//` (plain shallow merge) and `overrideAttrs` (the chainable patch helper) are common ways to derive a new target from an existing one.
+**Both silently inherit the source target's `name` field**, which collides in the wire format if you register the derived target under a different key without setting `name` explicitly:
+
+```nix
+let
+  base = lib.mkTarget { name = "base"; context = ./.; ... };
+
+  # WRONG: derived.name is still "base", will collide
+  derivedBad = base // { tags = [ "extra" ]; };
+
+  # RIGHT: explicitly set the new name on the patch
+  derivedGood = base // { name = "derived"; tags = [ "extra" ]; };
+
+  # Same with overrideAttrs:
+  variantGood = base.overrideAttrs (old: { name = "variant"; args = old.args // { X = "1"; }; });
+in
+{ targets = { inherit base derivedGood variantGood; }; }
+```
+
+The library's attrset-key-matches-name check catches this at module-load time with a clear error.
 
 ## Overrides
 
@@ -242,16 +271,14 @@ A module function must return an attrset with this shape:
 
 ```nix
 {
-  namespace = "string";                       # required; used for cross-module target ID namespacing
-  targets   = { name = target; ... };         # optional; attrset of target attrsets
-  groups    = { name = [ target ... ]; ... }; # optional; each value is a list of target attrsets
-  passthru  = { ... };                        # optional; opaque consumer payload (see below)
+  targets  = { <key> = target; ... };          # optional; each target's `name` field must equal its <key>
+  groups   = { <name> = [ target ... ]; ... }; # optional; each value is a list of target values
+  passthru = { ... };                          # optional; opaque consumer payload (see below)
 }
 ```
 
-Only `namespace` is required.
-`targets` and `groups` default to `{}` when absent.
-If the resulting target or group set is empty, the corresponding top-level key is omitted from the serialized output.
+Every field is optional; absent means `{}` (or absent in the serialized output).
+The module's namespace is its registry key in `mkScope` — see [Namespace = registry key](#namespace--registry-key).
 
 ### Extending modules and targets with `passthru`
 
@@ -260,9 +287,9 @@ Both modules and targets accept an optional `passthru` attrset, which the librar
 
 ```nix
 {
-  namespace = "app";
   targets = {
     main = lib.mkTarget {
+      name    = "main";
       context = lib.mkContext ./.;
       tags    = [ "myorg/app" ];
       passthru.pushRef = "oci://ghcr.io/me/app:a1b2c3";
