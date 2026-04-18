@@ -53,6 +53,11 @@ let
   # (mirrors the `serialized` attrset in walkTarget below).
   # Excluded: name, namespace, overrideAttrs, passthru.
   #
+  # Field-presence predicates mirror walkTarget's `hasX` checks so two
+  # targets that serialize to byte-identical wire output also produce
+  # the same hash (e.g., `tags = []` and missing `tags` are equivalent,
+  # as they are in the wire output).
+  #
   # Nix attrsets serialize with sorted keys via builtins.toJSON, so the
   # stringification is stable across evaluations.
   contentHash =
@@ -60,15 +65,22 @@ let
     let
       contexts = target.contexts or { };
       hashedContexts = builtins.mapAttrs (_: hashContext) contexts;
+
+      hasArgs = target ? args && target.args != { };
+      hasTags = target ? tags && target.tags != null && target.tags != [ ];
+      hasTarget = target ? target && target.target != null;
+      hasContexts = contexts != { };
+      hasPlatforms = target ? platforms && target.platforms != null;
+
       hashInput = {
         context = serializeContext target.context;
         dockerfile = target.dockerfile;
-        target = target.target or null;
-        args = target.args or { };
-        tags = target.tags or null;
-        platforms = target.platforms or null;
-        contexts = hashedContexts;
-      };
+      }
+      // (if hasPlatforms then { inherit (target) platforms; } else { })
+      // (if hasTarget then { inherit (target) target; } else { })
+      // (if hasContexts then { contexts = hashedContexts; } else { })
+      // (if hasArgs then { inherit (target) args; } else { })
+      // (if hasTags then { inherit (target) tags; } else { });
     in
     builtins.substring 0 8 (builtins.hashString "sha256" (builtins.toJSON hashInput));
 

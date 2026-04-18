@@ -234,6 +234,35 @@ let
     name = "renamed";
     namespace = "other";
   });
+
+  # Targets whose "empty" collection fields (tags/args) are supplied
+  # explicitly must hash the same as targets that omit those fields.
+  # walkTarget drops empty collections from the wire output; contentHash
+  # must mirror that so two targets with byte-identical wire output
+  # produce the same wire id.
+  hashEmptyTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    tags = [ ];
+  };
+  hashNoTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+  };
+  hashEmptyArgs = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    args = { };
+  };
+  hashNullTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    tags = null;
+  };
   # Context change shifts the hash.
   hashCtxChanged = hashBase.overrideAttrs (_: {
     context = ./ctx-other;
@@ -434,6 +463,25 @@ in
   # Hash format: 8 hex characters.
   testContentHashShape = {
     expr = builtins.match "[0-9a-f]{8}" (contentHash hashBase) != null;
+    expected = true;
+  };
+
+  # tags = [] and tags absent serialize identically in walkTarget; hash
+  # must match to avoid divergent wire ids for targets that emit the
+  # same build config.
+  testContentHashEmptyTagsEqualsMissingTags = {
+    expr = contentHash hashEmptyTags == contentHash hashNoTags;
+    expected = true;
+  };
+
+  testContentHashNullTagsEqualsMissingTags = {
+    expr = contentHash hashNullTags == contentHash hashNoTags;
+    expected = true;
+  };
+
+  # args = {} and args absent: same normalization rule as tags above.
+  testContentHashEmptyArgsEqualsMissingArgs = {
+    expr = contentHash hashEmptyArgs == contentHash hashNoTags;
     expected = true;
   };
 }
