@@ -51,9 +51,8 @@ Add the library as a flake input:
 
 ### Modules
 
-A module groups a set of targets under a namespace.
-The namespace is the module's registry key in `mkScope` (see [Bake files](#bake-files) below); modules don't declare it themselves.
-`lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated build context.
+A module is a collection of targets registered in a scope via `mkScope`.
+`lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated build context, prefixed with the module's registry key so sibling modules with a `./image` directory don't collide on the store-path name.
 
 Each target carries an explicit `name` field — its identifier in the generated bake file — which must match the attrset key the target is registered under.
 
@@ -137,32 +136,13 @@ The library checks that this `name` matches the attrset key the target is regist
 `contexts` is Docker Bake's attribute for declaring [named build contexts](https://docs.docker.com/build/bake/contexts/): extra inputs that a Dockerfile can reference via `FROM name` or `COPY --from=name`.
 Passing a target value as a `contexts.<name>` value (as with `contexts.base = base.targets.main` above) is how cross-module target dependencies are wired.
 The serializer translates the reference into a `target:<id>` entry in the bake file, which tells Docker Bake to build the upstream target first and make its output available to the downstream build.
-Registered targets (keys of the entry module's `targets`) use their bare name; references to targets that are not registered in the entry module resolve to a content-addressed `_<namespace>_<name>_<hash>` wire id (the leading underscore keeps them out of `docker buildx bake --list`).
+Registered targets (keys of the entry module's `targets`) use their bare name; references to targets that are not registered in the entry module resolve to a content-addressed `_<name>_<hash>` wire id (the leading underscore keeps them out of `docker buildx bake --list`).
 When the referenced target's content matches a registered target, it collapses into the bare name.
 See [Wire ids and content-addressed dedup](#wire-ids-and-content-addressed-dedup) for details.
 
 Groups map directly to Docker Bake's group concept:
 each key becomes a group you can invoke by name with `docker buildx bake <group>`, and its value is the list of targets built when the group is invoked.
 The list elements are target values; the library reads each value's `name` to compute the wire-format identifier.
-Group names themselves are not namespace-prefixed.
-
-### Namespace = registry key
-
-The module's namespace is the registry key it's registered under in `mkScope`.
-It flows through the serializer as a disambiguator for cross-module references (see [Wire ids and content-addressed dedup](#wire-ids-and-content-addressed-dedup) below).
-
-```nix
-scope = mkScope {
-  modules = {
-    app = ./services/app/bake.nix;  # registry key "app" → namespace "app"
-  };
-};
-# Inside app/bake.nix the module function takes args (lib, ...) — no need to declare a namespace.
-# Sibling modules in the same scope refer to it as `{ app, ... }:` (using the key).
-```
-
-The per-module `lib.mkTarget` is curried with `namespace = <registry-key>`, so every target constructed inside the module is born with its namespace intrinsic to the value.
-You don't write the namespace on individual targets; the library handles it.
 
 ### Wire ids and content-addressed dedup
 
@@ -173,16 +153,16 @@ The serializer classifies targets into two levels:
   Wire id is the bare `name` (which equals the attrset key — the library enforces this at module load).
   These are what you pass to `docker buildx bake <name>`.
 - **Second-level**: targets reached by walking `contexts.<name>` or group members that are not registered in the entry module (typically cross-module dependencies or foreign captures).
-  Wire id is `_<namespace>_<name>_<hash>`, where `<hash>` is an 8-hex-char content hash over the target's wire-format fields (`context`, `dockerfile`, `args`, `tags`, `platforms`, `contexts`).
+  Wire id is `_<name>_<hash>`, where `<hash>` is an 8-hex-char content hash over the target's wire-format fields (`context`, `dockerfile`, `args`, `tags`, `platforms`, `contexts`).
   The leading underscore hides them from `docker buildx bake --list`.
 
 Before emitting a second-level target, the serializer checks if its content hash matches any first-level target.
 A match collapses the reference to the first-level bare name rather than materializing a separate entry.
 Dedup is uniform: same content means same id, regardless of origin (own module, foreign module, scope fork).
 
-This closes a class of silent-duplication bugs around let-bindings that are both registered under `targets.<key>` and captured via another target's `contexts.<name>` — the registered copy gets its namespace stamped to the owning module, the captured copy is the pre-stamp version, and without content-addressed dedup they would serialize as two separate entries.
+This closes a class of silent-duplication bugs around let-bindings that are both registered under `targets.<key>` and captured via another target's `contexts.<name>`: two values with identical content resolve to the same wire id and collapse into a single entry.
 
-Content hash ignores identity metadata: changing only `name`, `namespace`, or a chained `overrideAttrs` does not shift the hash.
+Content hash ignores identity metadata: changing only `name` or a chained `overrideAttrs` does not shift the hash.
 Changing any content field (`context`, `args`, sub-contexts, etc.) does.
 
 ### Composing targets with `//` and `overrideAttrs`
@@ -300,7 +280,6 @@ A module function must return an attrset with this shape:
 ```
 
 Every field is optional; absent means `{}` (or absent in the serialized output).
-The module's namespace is its registry key in `mkScope` — see [Namespace = registry key](#namespace--registry-key).
 
 ### Extending modules and targets with `passthru`
 

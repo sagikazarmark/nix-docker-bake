@@ -78,13 +78,6 @@ let
             # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
             # `_scope` is retained for backward compatibility (some consumers
             # may read it); the serializer no longer depends on it.
-            #
-            # callBake invoked at the user level (outside mkScope's per-module
-            # mapAttrs) does NOT stamp `namespace` on the returned module
-            # value — the user is expected to supply a `lib` whose `mkTarget`
-            # is curried with the desired namespace if they intend to serialize
-            # the result. The registered-module path below handles the common
-            # case automatically.
             callBake =
               modulePath: overrides:
               let
@@ -117,44 +110,15 @@ let
           let
             # Per-module lib: mkContext/mkContextWith are pre-applied with the
             # module name so authors write `lib.mkContext ./path` instead of
-            # `lib.mkContext "kubeadm" ./path`. mkTarget is curried with
-            # `namespace = moduleName` so every target constructed inside a
-            # module is born with its namespace intrinsic to the value — the
-            # serializer never has to reverse-look-up which module a target
-            # came from.
+            # `lib.mkContext "kubeadm" ./path`. The module name functions as a
+            # store-path isolation prefix only; target identity is determined
+            # by registry key (first-level) or content hash (second-level).
             moduleLib = libFunctions // {
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
-              mkTarget = attrs: core.mkTarget (attrs // { namespace = moduleName; });
             };
-            # Stamp `namespace = moduleName` on the module value AND on every
-            # registered target. The registry key IS the namespace (D1=a);
-            # stamping at registration makes that invariant structural rather
-            # than relying on author discipline, so `//` re-exports of foreign
-            # targets (which silently inherit the LHS's namespace) cannot leak
-            # into the serialized bake file as spurious cross-module references.
-            # Targets are rebuilt via core.mkTarget so each one's overrideAttrs
-            # closure captures the stamped state; a subsequent `.overrideAttrs`
-            # won't revive the pre-stamp namespace.
-            # Values referenced via `contexts.<name>` are untouched — foreign
-            # namespaces there are how cross-module references work.
-            # Recursively re-applies through `.override` so chained overrides
-            # preserve the stamp.
-            stampTarget =
-              t: core.mkTarget ((builtins.removeAttrs t [ "overrideAttrs" ]) // { namespace = moduleName; });
-            stampNamespace =
-              mod:
-              let
-                stamped =
-                  if mod ? targets then mod // { targets = builtins.mapAttrs (_: stampTarget) mod.targets; } else mod;
-              in
-              stamped
-              // {
-                namespace = moduleName;
-                override = newArgs: stampNamespace (mod.override newArgs);
-              };
           in
-          stampNamespace (libFunctions.callBake modulePath { lib = moduleLib; })
+          libFunctions.callBake modulePath { lib = moduleLib; }
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;
@@ -165,7 +129,8 @@ let
   # Generate a docker-bake.json file as a Nix-store path.
   # Takes a resolved module value (from scope.modules.X or scope.X).
   # Identity resolution happens entirely off the target values themselves
-  # (each carries `name`+`namespace`), so `_scope` is no longer load-bearing.
+  # (registry key at first level, content hash at second level), so `_scope`
+  # is no longer load-bearing.
   #
   # builtins.unsafeDiscardStringContext is needed because builtins.toFile
   # cannot reference store paths produced by builtins.path (used by mkContext).

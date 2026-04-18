@@ -7,18 +7,13 @@ Defaults `dockerfile` to `"Dockerfile"`.
 Throws if `context` is missing.
 Does not default `platforms`.
 
-### Identity fields: `name` and `namespace`
+### Identity field: `name`
 
-Targets self-identify via two fields on the value:
+Targets self-identify via a `name` field on the value: the target's wire-format identifier (the key under which it appears in the generated `docker-bake.json`).
+Optional at construction; required when registering the target under `targets.<key>`, where it must equal `<key>`.
+When a target is used inline in a group or context without being registered, an absent `name` falls through to a synthetic `group__<n>__<i>` or `<parent>__<ctx>` identifier.
 
-- **`name`** — the target's wire-format identifier (the key under which it appears in the generated `docker-bake.json`).
-  Optional at construction; required when registering the target under `targets.<key>`, where it must equal `<key>`.
-  When a target is used inline in a group or context without being registered, an absent `name` falls through to a synthetic `group__<n>__<i>` or `<parent>__<ctx>` identifier.
-- **`namespace`** — the module's namespace, used to disambiguate targets across modules in cross-module references (`<namespace>_<name>`).
-  Auto-injected when the target is constructed via the per-module `lib.mkTarget` (see [`mkScope`](#mkscope--config-modules-) below).
-  Required at serialize time; a target reaching the serializer with a `name` but no `namespace` is treated as a hand-construction error and throws with a clear message pointing at the per-module `lib.mkTarget`.
-
-`name` and `namespace` are identity metadata and do **not** appear in the serialized target body — only as the wire-format key.
+`name` is identity metadata and does **not** appear in the serialized target body — only as the wire-format key.
 
 ## `target.overrideAttrs f`
 
@@ -101,16 +96,13 @@ Module shape: `{ targets?; groups?; passthru?; }` — every field optional.
 Throws with a descriptive message identifying the offending module path on shape errors.
 Called internally by `mkScope` after each module is resolved; exposed for consumer-side validation.
 
-A module that still returns a `namespace` field is tolerated for transitional compatibility, but the field is ignored — the module's namespace is its registry key in `mkScope` (see below).
-
 ## `mkScope { config, modules }`
 
 The main entry point.
 Takes a `config` attrset and an attrset of `name -> path` module references (where path may be a Nix path or a string), builds a fixed-point scope, and validates each resolved module.
 Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `override`, `modules`).
 
-The registry key under which a module is registered (`mkScope { modules.<key> = ...; }`) becomes the module's namespace.
-The per-module `lib.mkTarget` injected into the module function is curried with that namespace, so every target the author constructs is born with `namespace = <key>` intrinsic to the value.
+The per-module `lib.mkContext` and `lib.mkContextWith` injected into the module function are pre-applied with the registry key, so store paths for build contexts are prefixed with the module name to keep them isolated across modules.
 
 After a module is resolved, `mkScope` validates that every target's `name` field equals its attrset key in `targets`:
 
@@ -135,7 +127,7 @@ Serializes a module's target graph and writes it via `builtins.toFile`.
 Returns a Nix store path directly usable with `docker buildx bake -f`.
 The argument is a resolved module value (typically obtained from `scope.modules.<name>` or from `scope.<name>`).
 
-Identity resolution reads `name` and `namespace` directly off each target value — there is no reverse lookup, no scope back-reference, no closure-pointer comparison.
+Identity resolution reads `name` directly off each target value and compares content hashes — there is no reverse lookup, no scope back-reference, no closure-pointer comparison.
 This makes `.override` and `lib.extend` re-evaluations produce byte-identical bake files when the inputs are equivalent.
 
 ```nix
@@ -149,13 +141,13 @@ The serializer emits two kinds of target entries:
 - **First-level**: a target registered under `entryModule.targets.<key>`.
   Wire id is the bare `name` (equal to `<key>`; enforced by the attrset-key-matches-name check).
 - **Second-level**: a target reached by walking `contexts.<name>` or a group member that is not itself a key of `entryModule.targets`.
-  Wire id is `_<namespace>_<name>_<hash>`, where `<hash>` is the first 8 hex chars of a sha256 over the target's wire-format fields.
-  The hash excludes identity metadata (`name`, `namespace`, `overrideAttrs`, `passthru`) and hashes `contexts` recursively.
+  Wire id is `_<name>_<hash>`, where `<hash>` is the first 8 hex chars of a sha256 over the target's wire-format fields.
+  The hash excludes identity metadata (`name`, `overrideAttrs`, `passthru`) and hashes `contexts` recursively.
   The leading underscore keeps second-level entries out of `docker buildx bake --list`.
 
 Before emitting a second-level target, the serializer checks its content hash against the first-level set.
 A match resolves the reference to the first-level bare name and skips emission of a duplicate entry — the dedup criterion is content hash alone, independent of origin (own module, foreign module, scope fork).
-This closes the capture hazard around let-bindings that are both registered under `targets.<key>` (post-namespace-stamp) and captured via another target's `contexts.<name>` (pre-stamp): the two copies differ only on `namespace`, so their content hashes match and they collapse.
+This closes the capture hazard around let-bindings that are both registered under `targets.<key>` and captured via another target's `contexts.<name>`: two values with identical content resolve to the same wire id and collapse into a single entry.
 
 Consumers that need to force distinctness for two targets with otherwise-identical content should add a discriminating field (e.g., a noop arg or label).
 

@@ -10,7 +10,6 @@ rec {
     let
       allowedKeys = [
         "name"
-        "namespace"
         "context"
         "dockerfile"
         "target"
@@ -85,13 +84,6 @@ rec {
   # the offending module path. Returns the module unchanged on success.
   # Shape: { targets = attrset?; groups = attrset?; passthru = attrset?; }
   # All fields are optional; absent means `{}` (or absent in the output).
-  #
-  # Namespace is no longer carried on the module return value — the registry
-  # key in `mkScope { modules.<key> = ...; }` is the canonical namespace, and
-  # it's pre-applied to every target via the per-module `lib.mkTarget` curry
-  # (see lib/scope.nix). Modules that still return a `namespace` field are
-  # tolerated (the field is ignored), so existing modules don't break in the
-  # transition window.
   checkModule =
     modulePath: module:
     let

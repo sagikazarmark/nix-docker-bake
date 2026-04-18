@@ -185,100 +185,13 @@ let
     }
   '';
 
-  # Registration-time namespace stamping.
-  #
-  # `//` composition silently inherits `namespace` from the LHS, the same
-  # way it inherits `name`. Unlike `name` (which the author writes on every
-  # mkTarget call and must match the attrset key), `namespace` is curried
-  # in by the per-module lib.mkTarget — the author never writes it. So the
-  # fix is to STAMP namespace at registration rather than throw, reifying
-  # the D1=a "registry key IS the namespace" invariant structurally.
-  nsStampAFile = builtins.toFile "ns-stamp-a.nix" ''
-    { lib, ... }:
-    {
-      targets.base = lib.mkTarget { name = "base"; context = ./.; };
-      groups = {};
-    }
-  '';
-
-  # b re-exports a's target under its own key. Naive `//` leaves
-  # namespace = "a"; stamping rewrites it to "b".
-  nsStampBFile = builtins.toFile "ns-stamp-b.nix" ''
-    { lib, a, ... }:
-    {
-      targets = {
-        base = a.targets.base // { name = "base"; };
-        main = lib.mkTarget { name = "main"; context = ./.; };
-      };
-      groups = {};
-    }
-  '';
-
-  nsStampScope = mkScope {
-    config = { };
-    modules = {
-      a = nsStampAFile;
-      b = nsStampBFile;
-    };
-  };
-
-  nsStampBake = mkBakeFile nsStampScope.modules.b;
-  nsStampParsed = builtins.fromJSON (builtins.readFile nsStampBake);
-
-  # `.override` re-runs the module function through makeOverridable; the
-  # stamp must re-apply, not be lost.
-  nsStampOverrideFile = builtins.toFile "ns-stamp-override.nix" ''
-    { lib, a, version ? "v1", ... }:
-    {
-      targets = {
-        base = a.targets.base // { name = "base"; };
-        main = lib.mkTarget { name = "main"; context = ./.; args.V = version; };
-      };
-      groups = {};
-    }
-  '';
-  nsStampOverrideScope = mkScope {
-    config = { };
-    modules = {
-      a = nsStampAFile;
-      b = nsStampOverrideFile;
-    };
-  };
-  nsStampOverridden = nsStampOverrideScope.modules.b.override { version = "v2"; };
-
-  # A foreign target used in `contexts.<name>` (not registered under
-  # `targets.<key>`) must KEEP its foreign namespace — that's how the
-  # serializer emits a cross-module reference like `target:a_base`.
-  nsPreserveBFile = builtins.toFile "ns-preserve-b.nix" ''
-    { lib, a, ... }:
-    {
-      targets.main = lib.mkTarget {
-        name = "main";
-        context = ./.;
-        contexts.root = a.targets.base;
-      };
-      groups = {};
-    }
-  '';
-  nsPreserveScope = mkScope {
-    config = { };
-    modules = {
-      a = nsStampAFile;
-      b = nsPreserveBFile;
-    };
-  };
-
   # ---------- content-addressed dedup fixtures (issue #31) ----------
   #
-  # The capture hazard: a let-binding that is both registered under
+  # Capture hazard: a let-binding that is both registered under
   # `targets.<key>` AND captured via another registered target's
-  # `contexts.<name>`. The registered copy gets post-stamp by PR #30;
-  # the captured copy is pre-stamp (carries the LHS's silently-inherited
-  # foreign namespace). Nix values are immutable, so the two copies are
-  # distinct attrsets that differ only on `namespace`. Without
-  # content-addressed dedup, the serializer materializes both: one as
-  # the first-level `base`, the other as a spurious `a_base`. #31
-  # collapses them by content hash.
+  # `contexts.<name>`. Without content-addressed dedup, the serializer
+  # materializes both: one as the first-level `base`, the other as a
+  # spurious second-level entry. Content-hash dedup collapses them.
 
   dedupAFile = builtins.toFile "dedup-a.nix" ''
     { lib, ... }:
@@ -288,10 +201,9 @@ let
     }
   '';
 
-  # b registers `base` (a `//` re-export, stamp rewrites ns → "b") AND
-  # captures the pre-stamp let-binding via `main.contexts.root`. Before
-  # #31 that produced a third `a_base` entry; after #31 the two content-
-  # hash-match and collapse into the first-level `base`.
+  # b registers `base` (a `//` re-export) AND captures the let-binding
+  # via `main.contexts.root`. Content-hash dedup collapses both into
+  # the first-level `base` — bake file has exactly two target entries.
   dedupBFile = builtins.toFile "dedup-b.nix" ''
     { lib, a, ... }:
     let
@@ -320,9 +232,9 @@ let
   dedupParsed = builtins.fromJSON (builtins.readFile (mkBakeFile dedupScope.modules.b));
 
   # Transitive dedup (cri pattern from issue #31 trace 1): two first-
-  # level let-bindings, one captured pre-stamp by the other. Content
-  # hash matches the registered counterpart → dedup into the first-
-  # level id. No `_containerd_<hash>` entry appears.
+  # level let-bindings, one captured by the other. Content hash matches
+  # the registered counterpart → dedup into the first-level id. No
+  # `_containerd_<hash>` entry appears.
   triCAFile = builtins.toFile "tri-c.nix" ''
     { lib, ... }:
     {
@@ -358,7 +270,7 @@ let
 
   # Foreign second-level (no dedup): b.main.contexts.root = a.targets.base
   # where b registers no counterpart. No hash match anywhere in b's
-  # first-level set → emits as `_a_base_<hash>`.
+  # first-level set → emits as `_base_<hash>`.
   foreignAFile = builtins.toFile "foreign-a.nix" ''
     { lib, ... }:
     {
@@ -389,7 +301,7 @@ let
   # Scope-fork with patched args (harikubeadm-cluster pattern): a second-
   # level target derived from a scope-forked target, with args differing
   # from any first-level target. Content hash distinct → emits as
-  # `_<ns>_<name>_<hash>`, does NOT collapse.
+  # `_<name>_<hash>`, does NOT collapse.
   forkAFile = builtins.toFile "fork-a.nix" ''
     { lib, version ? "v1", ... }:
     {
@@ -466,9 +378,9 @@ let
   };
   uniformParsed = builtins.fromJSON (builtins.readFile (mkBakeFile uniformScope.modules.b));
 
-  # Groups + dedup: a group member captured pre-stamp from another
-  # module resolves to the first-level bare name via content-hash
-  # dedup, not to a hash-suffixed wire id.
+  # Groups + dedup: a group member captured from another module
+  # resolves to the first-level bare name via content-hash dedup,
+  # not to a hash-suffixed wire id.
   groupDedupBFile = builtins.toFile "group-dedup-b.nix" ''
     { lib, a, ... }:
     let
@@ -494,11 +406,6 @@ in
 {
   # ---------- mkScope ----------
 
-  testMkScopeModuleNamespace = {
-    expr = scope1.test.namespace;
-    expected = "test";
-  };
-
   testMkScopeInjectsConfig = {
     expr = scope1.test.targets.main.args.VAL;
     expected = "hello";
@@ -520,8 +427,8 @@ in
   # ---------- string-path modules ----------
 
   testMkScopeAcceptsStringPaths = {
-    expr = stringPathScope.test.namespace;
-    expected = "test";
+    expr = stringPathScope.test.targets ? main;
+    expected = true;
   };
 
   testMkScopeStringPathInjectsConfig = {
@@ -814,73 +721,12 @@ in
     expected = false;
   };
 
-  # ---------- namespace stamping (registration-time) ----------
-
-  # A `//` re-exported target has its silently-inherited foreign namespace
-  # overwritten to the registering module's name.
-  testRegistrationStampsReExportedTargetNamespace = {
-    expr = nsStampScope.b.targets.base.namespace;
-    expected = "b";
-  };
-
-  # Native-construction targets already carry the correct namespace via the
-  # per-module `lib.mkTarget` curry — assert the stamp is a no-op here (not
-  # a silent rewrite that could mask unrelated bugs).
-  testRegistrationStampPreservesCurriedNamespace = {
-    expr = nsStampScope.b.targets.main.namespace;
-    expected = "b";
-  };
-
-  # End-to-end reproducer from issue #29. Without the stamp, the
-  # alphabetically-first target (`base`) carries namespace "a", so
-  # entryNamespace becomes "a" and `main` is emitted as `b_main`. With
-  # the stamp, both targets are bare under module b's own namespace.
-  testRegistrationStampEmitsBareTargetNames = {
-    expr = builtins.sort (x: y: x < y) (builtins.attrNames nsStampParsed.target);
-    expected = [
-      "base"
-      "main"
-    ];
-  };
-
-  testRegistrationStampDoesNotEmitPrefixedOwnTarget = {
-    expr = nsStampParsed.target ? b_main;
-    expected = false;
-  };
-
-  # The stamp survives `.override`: re-resolving through makeOverridable
-  # re-runs the module function and must re-stamp.
-  testRegistrationStampSurvivesOverride = {
-    expr = nsStampOverridden.targets.base.namespace;
-    expected = "b";
-  };
-
-  # Foreign targets used as `contexts.<name>` values (not registered under
-  # `targets.<key>`) retain their original namespace — otherwise
-  # cross-module references would silently collapse into local references.
-  testRegistrationStampLeavesContextValuesUntouched = {
-    expr = nsPreserveScope.b.targets.main.contexts.root.namespace;
-    expected = "a";
-  };
-
-  # `.overrideAttrs` on a stamped target must not revive the pre-stamp
-  # namespace. This is the reason stampTarget rebuilds through core.mkTarget
-  # (so the target's overrideAttrs closure captures the stamped state)
-  # instead of using a cheaper `t // { namespace = ...; }`.
-  testRegistrationStampSurvivesOverrideAttrs = {
-    expr =
-      (nsStampScope.b.targets.base.overrideAttrs (_: {
-        tags = [ "x" ];
-      })).namespace;
-    expected = "b";
-  };
-
   # ---------- content-addressed dedup (issue #31) ----------
 
-  # Reproducer from issue #31: `main.contexts.root` captures the pre-
-  # stamp `aBase` let-binding while `targets.base = aBase` is also
-  # registered. Content-hash dedup collapses the capture into the
-  # first-level `base` — bake file has exactly two target entries.
+  # Reproducer from issue #31: `main.contexts.root` captures the `aBase`
+  # let-binding while `targets.base = aBase` is also registered. Content-
+  # hash dedup collapses the capture into the first-level `base` — bake
+  # file has exactly two target entries.
   testDedupCollapseReproducer = {
     expr = builtins.sort (x: y: x < y) (builtins.attrNames dedupParsed.target);
     expected = [
@@ -894,8 +740,8 @@ in
     expected = "target:base";
   };
 
-  # Transitive dedup (cri pattern): crio's pre-stamp containerdBase
-  # capture collapses into the registered `containerd` first-level. No
+  # Transitive dedup (cri pattern): crio's containerdBase capture
+  # collapses into the registered `containerd` first-level. No
   # `_containerd_<hash>` entry appears; the bake file has exactly two
   # target entries.
   testTransitiveDedupFirstLevelOnly = {
@@ -915,12 +761,12 @@ in
   # counterpart in entry module's first-level set → emits as hash-
   # suffixed wire id with leading underscore.
   testForeignSecondLevelPrefixedId = {
-    expr = builtins.match "target:_a_base_[0-9a-f]{8}" foreignParsed.target.main.contexts.root != null;
+    expr = builtins.match "target:_base_[0-9a-f]{8}" foreignParsed.target.main.contexts.root != null;
     expected = true;
   };
 
   testForeignSecondLevelEmitsEntry = {
-    expr = builtins.any (n: builtins.match "_a_base_.*" n != null) (
+    expr = builtins.any (n: builtins.match "_base_[0-9a-f]{8}" n != null) (
       builtins.attrNames foreignParsed.target
     );
     expected = true;
@@ -929,14 +775,14 @@ in
   # Scope-fork with patched args: same `name` as first-level but
   # distinct content → emits as second-level, does NOT collapse.
   testScopeForkPatchedArgsNoCollapse = {
-    expr = builtins.any (n: builtins.match "_a_base_.*" n != null) (
+    expr = builtins.any (n: builtins.match "_base_[0-9a-f]{8}" n != null) (
       builtins.attrNames forkParsed.target
     );
     expected = true;
   };
 
   testScopeForkPatchedArgsMainContextIsSecondLevel = {
-    expr = builtins.match "target:_a_base_[0-9a-f]{8}" forkParsed.target.main.contexts.root != null;
+    expr = builtins.match "target:_base_[0-9a-f]{8}" forkParsed.target.main.contexts.root != null;
     expected = true;
   };
 

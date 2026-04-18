@@ -1,32 +1,25 @@
 # Serialization: walk a module graph, produce a docker-bake.json-shaped attrset.
 #
-# Identity model: each target carries `name` and `namespace` on the value
-# itself (set by core.mkTarget's allowlist and the per-module lib.mkTarget
-# curry). Wire ids are resolved via a two-level classification:
+# Identity model: wire ids are resolved via a two-level classification:
 #
-#   - First-level target: a key of entryModule.targets. Wire id is `name`
-#     (PR #30 guarantees `namespace == entryNamespace` for these via
-#     registration-time stamping).
+#   - First-level target: a key of entryModule.targets. Wire id is the
+#     attrset key (which equals `target.name`, enforced by scope.nix's
+#     checkTargetNames).
 #   - Second-level target: any target reached via walking contexts.<name>
 #     or groups.<name> and not itself a key of entryModule.targets. Wire
-#     id is `_<namespace>_<name>_<hash>`, where `hash` is an 8-hex-char
-#     content hash computed over the target's wire-format fields,
-#     excluding identity metadata (`name`, `namespace`, `overrideAttrs`,
-#     `passthru`). Sub-contexts hash recursively.
+#     id is `_<name>_<hash>`, where `hash` is an 8-hex-char content hash
+#     computed over the target's wire-format fields, excluding identity
+#     metadata (`name`, `overrideAttrs`, `passthru`). Sub-contexts hash
+#     recursively.
 #
 # Dedup: when emitting a second-level target, its content hash is compared
 # against an index of first-level content hashes. A match resolves the
 # reference to the first-level target's bare name rather than materializing
-# a second entry. This closes the capture hazard where a let-binding is
-# both registered under targets.<key> (post-stamp) and captured via another
-# target's contexts.<name> (pre-stamp) — the two values differ only on
-# `namespace`, so their content hashes match and dedup collapses them.
+# a second entry. Same content means same id, regardless of origin (own
+# module, foreign module, scope fork).
 #
 # Anonymous values (e.g., inline targets in groups/contexts that omit
-# `name`) fall through to a synthetic-name fallback. Values that carry a
-# `name` but no `namespace` indicate a target constructed outside the
-# per-module `lib.mkTarget` curry — a hand-construction failure mode that
-# throws loudly.
+# `name`) fall through to a synthetic-name fallback.
 let
   # Serialize a context value (path or string).
   # Paths become their absolute string form. Strings pass through.
@@ -51,7 +44,7 @@ let
   #
   # Included: context, dockerfile, target, args, tags, platforms, contexts
   # (mirrors the `serialized` attrset in walkTarget below).
-  # Excluded: name, namespace, overrideAttrs, passthru.
+  # Excluded: name, overrideAttrs, passthru.
   #
   # Field-presence predicates mirror walkTarget's `hasX` checks so two
   # targets that serialize to byte-identical wire output also produce
@@ -87,8 +80,6 @@ let
   # Resolve a target value to its wire-format id.
   #
   # - Anonymous (no name): caller-supplied fallback (synthetic name).
-  # - Has name but no namespace: hand-construction outside the per-module
-  #   curry — throw with a clear pointer at the likely cause.
   # - Name matches a first-level key AND content hash matches that
   #   target: dedup to that key. This is the common case (same-module
   #   same-name identity) and is checked first so two first-level
@@ -97,8 +88,8 @@ let
   # - Content hash matches some first-level target: dedup to that
   #   target's bare key. Uniform regardless of origin (own module,
   #   foreign, scope fork) — same content = same id.
-  # - Otherwise second-level: `_<namespace>_<name>_<hash>`. The leading
-  #   underscore hides these from `docker buildx bake --list`.
+  # - Otherwise second-level: `_<name>_<hash>`. The leading underscore
+  #   hides these from `docker buildx bake --list`.
   #
   # `firstLevelNameToHash` and `firstLevelHashIndex` are precomputed
   # once per serialize call so the name-match check is an O(1) attrset
@@ -107,12 +98,9 @@ let
     firstLevelNameToHash: firstLevelHashIndex: target: fallback:
     let
       n = target.name or null;
-      ns = target.namespace or null;
     in
     if n == null then
       fallback
-    else if ns == null then
-      throw "serialize: target '${n}' is missing a 'namespace' field; this typically means the target was constructed outside the per-module `lib.mkTarget` (which curries the namespace in). Either construct it via the per-module lib, or pass `namespace = \"<module>\"` explicitly."
     else
       let
         h = contentHash target;
@@ -122,7 +110,7 @@ let
       else if firstLevelHashIndex ? ${h} then
         firstLevelHashIndex.${h}
       else
-        "_${ns}_${n}_${h}";
+        "_${n}_${h}";
 
   walkTarget =
     { firstLevelNameToHash, firstLevelHashIndex }:
@@ -167,8 +155,8 @@ let
         hasPlatforms = target ? platforms && target.platforms != null;
 
         # Explicit allowlist — do not splat `target //` here. Unknown target
-        # attrs (e.g., `passthru`, `name`, `namespace`) must not leak into
-        # the serialized output.
+        # attrs (e.g., `passthru`, `name`) must not leak into the serialized
+        # output.
         serialized = {
           context = serializeContext target.context;
           dockerfile = target.dockerfile;
@@ -229,11 +217,7 @@ let
       firstLevelNameToHash = builtins.mapAttrs (_: contentHash) firstLevelTargets;
 
       # content hash → first-level key. Used to dedup second-level
-      # targets that content-hash-match a first-level target. A target's
-      # content hash is a deterministic function of its wire-format
-      # fields, so a second-level value that differs from its first-level
-      # counterpart only on identity metadata (namespace in particular:
-      # the PR #30 pre-stamp vs post-stamp case) collapses cleanly here.
+      # targets that content-hash-match a first-level target.
       #
       # Two first-level targets can coincidentally share a content hash
       # (e.g., identical build config under different names). listToAttrs
@@ -247,22 +231,6 @@ let
           value = key;
         }) targetNames
       );
-
-      # Pre-flight: every first-level target must carry a namespace.
-      # resolveId enforces this when a value is referenced (via
-      # contexts or groups), but a first-level target that is not
-      # referenced anywhere else would otherwise slip through. Done
-      # via a list that forces evaluation on each entry.
-      _assertFirstLevelNamespaces = builtins.map (
-        key:
-        let
-          t = firstLevelTargets.${key};
-        in
-        if t ? name && !(t ? namespace) then
-          throw "serialize: target '${t.name}' is missing a 'namespace' field; this typically means the target was constructed outside the per-module `lib.mkTarget` (which curries the namespace in). Either construct it via the per-module lib, or pass `namespace = \"<module>\"` explicitly."
-        else
-          null
-      ) targetNames;
 
       initialAcc = {
         target = { };
@@ -331,10 +299,8 @@ let
         }
       ) groupNames;
     in
-    builtins.deepSeq _assertFirstLevelNamespaces (
-      (if afterGroups.target != { } then { target = afterGroups.target; } else { })
-      // (if afterGroups.groupOutputs != { } then { group = afterGroups.groupOutputs; } else { })
-    );
+    (if afterGroups.target != { } then { target = afterGroups.target; } else { })
+    // (if afterGroups.groupOutputs != { } then { group = afterGroups.groupOutputs; } else { });
 in
 {
   inherit serialize contentHash;

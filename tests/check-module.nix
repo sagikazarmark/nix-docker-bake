@@ -2,9 +2,7 @@
 let
   inherit (bake) checkModule;
 
-  # Minimal valid module under D1=a: namespace is no longer carried on the
-  # module return value (the registry key in mkScope is the canonical
-  # namespace). Both `targets` and `groups` are optional.
+  # Minimal valid module: both `targets` and `groups` are optional.
   validModule = {
     targets = { };
     groups = { };
@@ -19,16 +17,6 @@ in
   testCheckModulePassesEmptyAttrset = {
     expr = checkModule ./x { };
     expected = { };
-  };
-
-  # Modules that still return a `namespace` field are tolerated for
-  # transitional compatibility — the field is ignored downstream (the
-  # per-module curry stamps namespace from the registry key instead).
-  testCheckModuleToleratesLegacyNamespace = {
-    expr = checkModule ./x (validModule // { namespace = "legacy"; });
-    expected = validModule // {
-      namespace = "legacy";
-    };
   };
 
   testCheckModuleThrowsNonAttrsetTargets = {
