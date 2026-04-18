@@ -61,33 +61,28 @@ derived = base // {
 
 The library's `targets.<key>`-must-match-`name` check (see [`mkScope`](#mkscope--config-modules-)) catches the omission with an error pointing at the offending key.
 
-## `mkContext prefix path`
+## `mkContext path`
 
 Import a Docker build context as an isolated Nix store path.
 The store-path hash depends only on the directory's contents, not the entire repo, preventing Docker cache busting when unrelated files change.
-The `prefix` is prepended to the basename for uniqueness (e.g., two modules with `./image` won't collide).
 
 ```nix
-context = mkContext "app" ./images/api;
-# → /nix/store/<hash>-app-api-context
+context = mkContext ./images/api;
+# → /nix/store/<hash>-api-context
 ```
 
-Inside a module resolved by `mkScope`, `lib.mkContext` is pre-applied with the module's registry key, so you write `lib.mkContext ./path` instead of `lib.mkContext "app" ./path`.
-
-## `mkContextWith prefix { path, filter ? null }`
+## `mkContextWith { path, filter ? null }`
 
 Attrset-form variant of `mkContext` that additionally accepts an optional `filter` function — the same `path -> type -> bool` predicate `builtins.path` takes.
 Use it to exclude files from the imported context (dev artefacts, secrets, unrelated sibling directories) before Docker sees them.
-The store-path name is derived the same way as `mkContext` (`${prefix}-${baseNameOf path}-context`); the filter participates in the content hash, so changing the filter produces a different store path.
+The filter participates in the content hash, so changing the filter produces a different store path.
 
 ```nix
-context = mkContextWith "app" {
+context = mkContextWith {
   path = ./images/api;
   filter = p: t: baseNameOf p != "node_modules";
 };
 ```
-
-Inside a module resolved by `mkScope`, `lib.mkContextWith` is pre-applied with the module's registry key in the same way as `lib.mkContext`.
 
 ## `checkModule path module`
 
@@ -101,8 +96,6 @@ Called internally by `mkScope` after each module is resolved; exposed for consum
 The main entry point.
 Takes a `config` attrset and an attrset of `name -> path` module references (where path may be a Nix path or a string), builds a fixed-point scope, and validates each resolved module.
 Throws if any module name conflicts with a reserved scope key (`lib`, `extend`, `override`, `modules`).
-
-The per-module `lib.mkContext` and `lib.mkContextWith` injected into the module function are pre-applied with the registry key, so store paths for build contexts are prefixed with the module name to keep them isolated across modules.
 
 After a module is resolved, `mkScope` validates that every target's `name` field equals its attrset key in `targets`:
 
@@ -156,8 +149,7 @@ Consumers that need to force distinctness for two targets with otherwise-identic
 Every resolved module in a scope (`scope.<name>`, `scope.modules.<name>`, or the result of `lib.callBake`) carries an `.override` method that re-evaluates the module with `attrs` shallow-merged onto its current arguments.
 The override is local to the returned instance: the scope and sibling modules are unaffected.
 Mirrors the `pkg.override` idiom from nixpkgs.
-The result carries its own `.override`, so calls chain.
-The result also retains the `_scope` back-reference, so it is directly usable with `mkBakeFile`.
+The result carries its own `.override`, so calls chain, and is directly usable with `mkBakeFile`.
 
 Use this when you want to swap a single argument on a single module, whether the argument is declared inline in the module or pulled in from scope config.
 For scope-wide changes that affect every module reading a key, reach for `scope.override` / `scope.extend` instead.
@@ -200,7 +192,7 @@ devScope = scope.override { appVersion = "v2.0.0"; };
 
 Available on the per-module `lib` injected into modules resolved by `mkScope`.
 Resolves the module at `path` with its function arguments auto-injected from the scope, and applies `overrides` as a per-call replacement attrset.
-Returns a resolved module value (with `_scope` attached and an `.override` method, just like `scope.modules.<name>`), suitable for use as a dependency of another module or directly with `mkBakeFile`.
+Returns a resolved module value (carrying an `.override` method, just like `scope.modules.<name>`), suitable for use as a dependency of another module or directly with `mkBakeFile`.
 
 Use this when you want to re-resolve a single module with a different argument: siblings and the rest of the scope are unaffected. For scope-wide changes, reach for `lib.extend` / `lib.override` instead. For an `.override`-style swap on a module already resolved through the scope, prefer `scope.<name>.override`.
 

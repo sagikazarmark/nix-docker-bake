@@ -66,7 +66,8 @@ let
                   true;
               allValid = builtins.all validate (builtins.attrNames targets);
             in
-            if allValid then targets else throw "unreachable";
+            assert allValid;
+            targets;
 
           libFunctions = {
             # Library primitives exposed for module consumption.
@@ -76,8 +77,6 @@ let
             # The returned module carries `.override`: a per-instance argument
             # swap that re-runs the module function with new args, leaving the
             # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
-            # `_scope` is retained for backward compatibility (some consumers
-            # may read it); the serializer no longer depends on it.
             callBake =
               modulePath: overrides:
               let
@@ -88,10 +87,8 @@ let
                   extraArgs:
                   let
                     raw = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
-                    checked =
-                      if raw ? targets then raw // { targets = checkTargetNames pathLabel raw.targets; } else raw;
                   in
-                  checked // { _scope = self; };
+                  if raw ? targets then raw // { targets = checkTargetNames pathLabel raw.targets; } else raw;
               in
               nixLib.makeOverridable mkModule { };
 
@@ -105,21 +102,7 @@ let
 
           inherit extend override;
         }
-        // builtins.mapAttrs (
-          moduleName: modulePath:
-          let
-            # Per-module lib: mkContext/mkContextWith are pre-applied with the
-            # module name so authors write `lib.mkContext ./path` instead of
-            # `lib.mkContext "kubeadm" ./path`. The module name functions as a
-            # store-path isolation prefix only; target identity is determined
-            # by registry key (first-level) or content hash (second-level).
-            moduleLib = libFunctions // {
-              mkContext = core.mkContext moduleName;
-              mkContextWith = core.mkContextWith moduleName;
-            };
-          in
-          libFunctions.callBake modulePath { lib = moduleLib; }
-        ) modules
+        // builtins.mapAttrs (_: modulePath: libFunctions.callBake modulePath { }) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;
         };
@@ -128,9 +111,8 @@ let
 
   # Generate a docker-bake.json file as a Nix-store path.
   # Takes a resolved module value (from scope.modules.X or scope.X).
-  # Identity resolution happens entirely off the target values themselves
-  # (registry key at first level, content hash at second level), so `_scope`
-  # is no longer load-bearing.
+  # Identity resolution happens entirely off the target values themselves:
+  # registry key at first level, content hash at second level.
   #
   # builtins.unsafeDiscardStringContext is needed because builtins.toFile
   # cannot reference store paths produced by builtins.path (used by mkContext).

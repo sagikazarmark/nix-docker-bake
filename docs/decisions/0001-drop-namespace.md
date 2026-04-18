@@ -1,6 +1,10 @@
-# Issue #27 analysis: target identity model
+# ADR 0001: drop `namespace` from target and module identity
 
-Analysis of [issue #27](https://github.com/sagikazarmark/nix-docker-bake/issues/27) ("accept target names alongside target values in groups and contexts"), the structural problem it points at, the design space for fixing it, and the recommended path forward.
+**Status:** Shipped in b666a8b (merged via #37, April 2026). The registry key in `mkScope { modules.<key> = ...; }` is the sole source of module identity; targets self-identify via the required `name` field, and cross-module references in the wire format are resolved by content hash rather than a `<namespace>_<name>` string. This document is kept as historical design context for why the change was made and which alternatives were considered.
+
+---
+
+Original analysis of [issue #27](https://github.com/sagikazarmark/nix-docker-bake/issues/27) ("accept target names alongside target values in groups and contexts"), the structural problem it points at, the design space for fixing it, and the recommended path forward.
 
 ## TL;DR
 

@@ -52,7 +52,7 @@ Add the library as a flake input:
 ### Modules
 
 A module is a collection of targets registered in a scope via `mkScope`.
-`lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated build context, prefixed with the module's registry key so sibling modules with a `./image` directory don't collide on the store-path name.
+`lib.mkTarget` builds a target; `lib.mkContext` imports a directory as an isolated, content-addressed build context so unrelated repo changes don't bust Docker's cache.
 
 Each target carries an explicit `name` field — its identifier in the generated bake file — which must match the attrset key the target is registered under.
 

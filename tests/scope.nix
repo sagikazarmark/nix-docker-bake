@@ -52,14 +52,8 @@ let
     };
   };
 
-  # mkContext auto-injection: module receives lib.mkContext pre-applied with its registry key.
-  mkCtxScope = mkScope {
-    config = { };
-    modules.my-module = ./fixtures/mkctx-mod.nix;
-  };
-
-  # lib.extend with mkContext: a forked module must still receive a
-  # per-module-specialized lib.mkContext (not the unspecialized curried form).
+  # lib.extend witness module: consumes `val` from scope so overlay propagation
+  # into a forked module can be observed on the resolved module's args.
   cwsMkCtxScope = mkScope {
     config.val = "default";
     modules.forkable = ./fixtures/forkable-mkctx-mod.nix;
@@ -416,14 +410,6 @@ in
     expected = true;
   };
 
-  # Witness-style assertion: confirms the back-ref points at a scope with the
-  # expected shape. Avoids structural `==` on cyclic attrsets (the back-ref
-  # creates a cycle between the scope and its modules).
-  testMkScopeModuleCarriesScopeBackref = {
-    expr = scope1.modules.test._scope.test.targets.main.args.VAL;
-    expected = "hello";
-  };
-
   # ---------- string-path modules ----------
 
   testMkScopeAcceptsStringPaths = {
@@ -448,20 +434,9 @@ in
     expected = "overridden";
   };
 
-  testLibExtendMkContextIsStorePath = {
-    expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxStr != null;
-    expected = true;
-  };
-
-  testLibExtendMkContextWithIsStorePath = {
-    expr = builtins.match "/nix/store/.*-forkable-.*-context" cwsMkCtxForked._ctxWithStr != null;
-    expected = true;
-  };
-
-  # Renamed from testCallBakeWithScopeMkContextUsesRegistryKey — the original
-  # asserted on args.VAL (i.e., overlay propagation into the forked module's
-  # args), not on the mkContext registry-key specialization. The store-path
-  # specialization is covered by the two *IsStorePath tests above.
+  # lib.extend on a scope with a module that reads a scope config key: the
+  # forked module's args reflect the overlay's value, confirming the overlay
+  # propagates through callBake's auto-injection.
   testLibExtendPropagatesToForkedModuleArgs = {
     expr = cwsMkCtxForked.targets.t.args.VAL;
     expected = "overridden";
@@ -486,36 +461,6 @@ in
   testScopeExtendDoesNotMutateOriginal = {
     expr = scope1.test.targets.main.args.VAL;
     expected = "hello";
-  };
-
-  # ---------- mkContext auto-injection ----------
-
-  # The module's lib.mkContext is pre-applied with the registry key ("my-module"),
-  # so the store path name contains that prefix.
-  testScopeMkContextAutoPrefix = {
-    expr = builtins.match ".*my-module-.*-context.*" mkCtxScope.my-module._ctxStr != null;
-    expected = true;
-  };
-
-  # The auto-injected mkContext still produces a valid store path.
-  testScopeMkContextIsStorePath = {
-    expr = builtins.match "/nix/store/.*" mkCtxScope.my-module._ctxStr != null;
-    expected = true;
-  };
-
-  # lib.mkContextWith is pre-applied with the registry key in exactly the same
-  # way as lib.mkContext, so a module calling `lib.mkContextWith { path = ...; }`
-  # (no prefix arg) gets the module name baked into the store-path name.
-  testScopeMkContextWithAutoPrefix = {
-    expr = builtins.match ".*my-module-.*-context.*" mkCtxScope.my-module._ctxWithStr != null;
-    expected = true;
-  };
-
-  # Without a filter, scope-injected mkContextWith must match scope-injected
-  # mkContext hash-for-hash (same module, same path).
-  testScopeMkContextWithMatchesMkContext = {
-    expr = mkCtxScope.my-module._ctxWithStr == mkCtxScope.my-module._ctxStr;
-    expected = true;
   };
 
   # ---------- reserved-name conflicts ----------
@@ -646,12 +591,6 @@ in
       ((perModuleScope.perm.override { version = "2.0.0"; }).override { version = "3.0.0"; })
       .targets.t.args.VAL;
     expected = "3.0.0";
-  };
-
-  # The overridden module still carries _scope so mkBakeFile works on it.
-  testModuleOverridePreservesScope = {
-    expr = (perModuleScope.perm.override { version = "2.0.0"; }) ? _scope;
-    expected = true;
   };
 
   # `scope.modules.<name>.override` works the same as `scope.<name>.override`.
