@@ -5,9 +5,24 @@
   serialize,
 }:
 let
+  /**
+    Build a fixed-point scope from consumer-supplied `config` and a set of
+    `modules` (attrset of `name -> path`). Module functions are resolved via
+    auto-injection (`builtins.functionArgs`) against the resolved scope.
+
+    The returned scope exposes `lib` (library primitives), `extend` / `override`
+    (fork helpers), `modules.<name>` (resolved modules), and any attributes
+    propagated from `config`.
+
+    # Type
+
+    ```
+    mkScope :: { config :: AttrSet, modules :: AttrSet } -> Scope
+    ```
+  */
   # Build a fixed-point scope function from consumer-supplied config and module paths.
   # config: opaque attrset; values flow to modules via callBake auto-injection.
-  # modules: attrset of `name → path-to-bake.nix`.
+  # modules: attrset of `name -> path-to-bake.nix`.
   mkScope =
     {
       config,
@@ -46,7 +61,7 @@ let
           #   (2) `//` composition silently inheriting `name` from LHS
           #   (3) project-level wrapper helpers compounding (1) or (2)
           # Fires at module-registration time, before mkBakeFile ever
-          # runs — fail-fast on a typo. Uses `builtins.all` (strict on
+          # runs (fail-fast on a typo). Uses `builtins.all` (strict on
           # its elements) to force each per-target validation eagerly,
           # so the throw fires when the module is registered, not when
           # someone later accesses `module.targets.<key>`.
@@ -61,7 +76,7 @@ let
                 if !(target ? name) then
                   throw "module '${modName}': targets.${key} is missing the required 'name' field. Add `name = \"${key}\"` to the mkTarget call."
                 else if target.name != key then
-                  throw "module '${modName}': targets.${key} has name '${target.name}' but is registered under key '${key}'. The `name` field and the attrset key must match — did you derive this target via `//` or `overrideAttrs` and forget to set `name = \"${key}\"` on the patch?"
+                  throw "module '${modName}': targets.${key} has name '${target.name}' but is registered under key '${key}'. The `name` field and the attrset key must match (did you derive this target via `//` or `overrideAttrs` and forget to set `name = \"${key}\"` on the patch?)"
                 else
                   true;
               allValid = builtins.all validate (builtins.attrNames targets);
@@ -109,6 +124,19 @@ let
     in
     nixLib.fix scopeFn;
 
+  /**
+    Generate a `docker-bake.json` file as a Nix-store path from a resolved
+    module value (typically `scope.modules.<name>` or `scope.<name>`).
+
+    Identity resolution is content-addressed: registry key at the first level,
+    content hash at the second.
+
+    # Type
+
+    ```
+    mkBakeFile :: Module -> StorePath
+    ```
+  */
   # Generate a docker-bake.json file as a Nix-store path.
   # Takes a resolved module value (from scope.modules.X or scope.X).
   # Identity resolution happens entirely off the target values themselves:

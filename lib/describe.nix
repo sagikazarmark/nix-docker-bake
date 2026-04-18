@@ -1,16 +1,28 @@
-# Human-readable scope introspection — for debugging.
+# Human-readable scope introspection (for debugging).
 {
-  # describeScope: returns a formatted string summarizing a bake scope's
-  # modules, their targets, and key properties (args keys, tags count).
-  #
-  # Example output:
-  #   scope (13 modules):
-  #     container-utils: 1 target
-  #       main  [context=./.  args=0]
-  #     kubeadm: 6 targets, groups default
-  #       base  [context=./images/kubeadm  args=2]
-  #       main  [context=./images/kubeadm  args=2]
-  #       ...
+  /**
+    Return a human-readable string summarizing a scope's modules, their
+    targets, and key properties (context path, args count, groups).
+
+    Intended for debugging; do not parse the output.
+
+    # Type
+
+    ```
+    describeScope :: Scope -> String
+    ```
+
+    # Example
+
+    ```
+    scope (2 modules):
+      base: 1 target
+        main  [context=./.  args=0]
+      api: 2 targets, groups default
+        base  [context=./images/api  args=2]
+        main  [context=./images/api  args=2]
+    ```
+  */
   describeScope =
     scope:
     let
