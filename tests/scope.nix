@@ -130,6 +130,31 @@ let
       b = libOverrideBFile;
     };
   };
+
+  # Per-module .override: a module with a defaulted arg that is NOT in scope
+  # config. The override should swap the arg without touching the scope.
+  perModuleArgFile = builtins.toFile "permod-arg.nix" ''
+    { lib, version ? "1.0.0", ... }:
+    {
+      namespace = "perm";
+      targets = { t = lib.mkTarget { context = ./.; args.VAL = version; }; };
+      groups = {};
+    }
+  '';
+  perModuleScope = mkScope {
+    config = { };
+    modules.perm = perModuleArgFile;
+  };
+
+  # Per-instance override of a scope-wide arg: two modules both read `shared`
+  # from scope config. Overriding it on one must not affect the other.
+  instOverrideScope = mkScope {
+    config.shared = "base";
+    modules = {
+      a = sharedA;
+      b = sharedB;
+    };
+  };
 in
 {
   # ---------- mkScope ----------
@@ -321,6 +346,13 @@ in
     expected = "base";
   };
 
+  # callBake's result is itself overridable: the API doc lists callBake
+  # alongside scope.<name> as a source of overridable modules.
+  testCallBakeResultIsOverridable = {
+    expr = (aOverridden.override { shared = "twice-overridden"; }).targets.t.args.VAL;
+    expected = "twice-overridden";
+  };
+
   # ---------- scope.override / lib.override sugar ----------
 
   testScopeOverrideAppliesAttrs = {
@@ -336,5 +368,75 @@ in
   testLibOverridePropagates = {
     expr = libOverrideScope.b.targets.t.contexts.root.args.VAL;
     expected = "via-lib-override";
+  };
+
+  # ---------- per-module .override ----------
+
+  # Baseline: module with a defaulted arg resolves to the default.
+  testModuleOverrideBaseline = {
+    expr = perModuleScope.perm.targets.t.args.VAL;
+    expected = "1.0.0";
+  };
+
+  # .override swaps the arg.
+  testModuleOverrideSwapsArg = {
+    expr = (perModuleScope.perm.override { version = "2.0.0"; }).targets.t.args.VAL;
+    expected = "2.0.0";
+  };
+
+  # Override is local to the returned instance; the scope's view is unaffected.
+  # Both values must be forced in the same expr so the override actually runs;
+  # a `let _ = override; in scope.X` would never evaluate the override.
+  testModuleOverrideDoesNotMutateScope = {
+    expr = {
+      overridden = (perModuleScope.perm.override { version = "2.0.0"; }).targets.t.args.VAL;
+      original = perModuleScope.perm.targets.t.args.VAL;
+    };
+    expected = {
+      overridden = "2.0.0";
+      original = "1.0.0";
+    };
+  };
+
+  # .override chains: latest call wins.
+  testModuleOverrideChains = {
+    expr =
+      ((perModuleScope.perm.override { version = "2.0.0"; }).override { version = "3.0.0"; })
+      .targets.t.args.VAL;
+    expected = "3.0.0";
+  };
+
+  # The overridden module still carries _scope so mkBakeFile works on it.
+  testModuleOverridePreservesScope = {
+    expr = (perModuleScope.perm.override { version = "2.0.0"; }) ? _scope;
+    expected = true;
+  };
+
+  # `scope.modules.<name>.override` works the same as `scope.<name>.override`.
+  # The two paths reference the same value via mapAttrs, but the API doc
+  # explicitly lists both, so assert the equivalence.
+  testModuleOverrideViaModulesAttr = {
+    expr = (perModuleScope.modules.perm.override { version = "2.0.0"; }).targets.t.args.VAL;
+    expected = "2.0.0";
+  };
+
+  # Per-instance override of a scope-wide arg: only the overridden module
+  # sees the new value; siblings reading the same scope key are unaffected.
+  testModuleOverrideOfScopeArgIsLocal = {
+    expr = (instOverrideScope.a.override { shared = "only-a"; }).targets.t.args.VAL;
+    expected = "only-a";
+  };
+
+  # Forcing both `a` (overridden) and `b` (sibling) in the same attrset
+  # ensures the override is evaluated, not skipped by laziness.
+  testModuleOverrideOfScopeArgDoesNotAffectSibling = {
+    expr = {
+      a = (instOverrideScope.a.override { shared = "only-a"; }).targets.t.args.VAL;
+      b = instOverrideScope.b.targets.t.args.VAL;
+    };
+    expected = {
+      a = "only-a";
+      b = "base";
+    };
   };
 }
