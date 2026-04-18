@@ -155,6 +155,46 @@ let
       b = sharedB;
     };
   };
+
+  # Registration-time validation: a target's `name` field must match its
+  # attrset key. Catches the three silent-collision idioms documented in
+  # docs/issue-27-analysis.md:
+  #   (1) let-binding identifier ≠ attrset key
+  #   (2) `//` composition silently inherits `name` from LHS
+  #   (3) project-level wrapper helpers compounding (1) or (2)
+
+  # Idiom 1: name explicitly mismatches attrset key.
+  nameMismatchFile = builtins.toFile "name-mismatch.nix" ''
+    { lib, ... }:
+    {
+      namespace = "nm";
+      targets = { foo = lib.mkTarget { name = "bar"; context = ./.; }; };
+      groups = {};
+    }
+  '';
+
+  # Idiom 2: `//` composition inherits `name` from LHS without an explicit override.
+  slashInheritFile = builtins.toFile "slash-inherit.nix" ''
+    { lib, ... }:
+    let
+      base = lib.mkTarget { name = "base"; context = ./.; };
+      derived = base // { tags = [ "x" ]; };  # name still "base", not "derived"
+    in {
+      namespace = "si";
+      targets = { inherit base; derived = derived; };
+      groups = {};
+    }
+  '';
+
+  # Idiom 3: registered target with no `name` field at all.
+  missingNameFile = builtins.toFile "missing-name.nix" ''
+    { lib, ... }:
+    {
+      namespace = "mn";
+      targets = { main = lib.mkTarget { context = ./.; }; };
+      groups = {};
+    }
+  '';
 in
 {
   # ---------- mkScope ----------
@@ -438,5 +478,38 @@ in
       a = "only-a";
       b = "base";
     };
+  };
+
+  # ---------- attrset-key-matches-name validation (registration-time) ----------
+
+  # Idiom 1: explicit name vs key mismatch throws at module load.
+  testRegistrationRejectsNameKeyMismatch = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.nm = nameMismatchFile;
+      }).nm.targets).success;
+    expected = false;
+  };
+
+  # Idiom 2: `//` inherits name from LHS — registered under a different key
+  # than its inherited name → throws at module load.
+  testRegistrationRejectsSlashInheritedName = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.si = slashInheritFile;
+      }).si.targets).success;
+    expected = false;
+  };
+
+  # Idiom 3: target without a name field at all → throws at module load.
+  testRegistrationRejectsMissingName = {
+    expr =
+      (builtins.tryEval (mkScope {
+        config = { };
+        modules.mn = missingNameFile;
+      }).mn.targets).success;
+    expected = false;
   };
 }

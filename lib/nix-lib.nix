@@ -35,23 +35,4 @@ rec {
       override = newArgs: makeOverridable f (origArgs // newArgs);
     };
 
-  # Recursively drop function-valued attributes from a value. Used to compare
-  # attrsets for content equality without being thrown off by closures, which
-  # Nix compares by pointer identity — two structurally-equal attrsets built
-  # from distinct function calls are never `==` as long as either contains a
-  # closure (e.g., `mkTarget`'s `overrideAttrs`). Functions encountered inside
-  # lists (or otherwise outside an attrset key position) collapse to `null` so
-  # the same erasure applies at any depth.
-  stripFunctions =
-    v:
-    if builtins.isFunction v then
-      null
-    else if builtins.isAttrs v then
-      builtins.mapAttrs (_: stripFunctions) (
-        builtins.removeAttrs v (builtins.filter (k: builtins.isFunction v.${k}) (builtins.attrNames v))
-      )
-    else if builtins.isList v then
-      map stripFunctions v
-    else
-      v;
 }

@@ -4,8 +4,14 @@ let
   # Access serialize via the internal path; tests are framework-internal.
   serialize = (import ../lib/serialize.nix).serialize;
 
+  # Modules in this file are constructed by hand (not via mkScope), so each
+  # mkTarget call sets `namespace` explicitly — the per-module curry that
+  # normally injects it is bypassed here.
+
   # ---------- minimal serialize ----------
   minimalTarget = mkTarget {
+    name = "main";
+    namespace = "test";
     context = ./foo;
     platforms = [ "linux/amd64" ];
     args = {
@@ -19,12 +25,14 @@ let
     };
     groups = { };
   };
-  minimalScope.modules.test = minimalModule;
-  serialized5 = serialize minimalScope minimalModule;
+  serialized5 = serialize minimalModule;
 
-  # ---------- target contexts (synthetic names) ----------
+  # ---------- target contexts (synthetic names for anonymous inline targets) ----------
+  # Inline target without a `name` — exercises the synthetic-name fallback.
   innerTarget = mkTarget { context = ./inner; };
   outerTarget = mkTarget {
+    name = "outer";
+    namespace = "cross";
     context = ./outer;
     contexts = {
       root = innerTarget;
@@ -37,22 +45,20 @@ let
     };
     groups = { };
   };
-  crossScope.modules.cross = crossModule;
-  serialized6 = serialize crossScope crossModule;
+  serialized6 = serialize crossModule;
 
   # ---------- cross-module identity ----------
-  sharedTarget = mkTarget { context = ./shared; };
-  moduleA = {
+  sharedTarget = mkTarget {
+    name = "shared";
     namespace = "a";
-    targets = {
-      shared = sharedTarget;
-    };
-    groups = { };
+    context = ./shared;
   };
   moduleB = {
     namespace = "b";
     targets = {
       uses = mkTarget {
+        name = "uses";
+        namespace = "b";
         context = ./uses;
         contexts = {
           root = sharedTarget;
@@ -61,16 +67,12 @@ let
     };
     groups = { };
   };
-  abScope = {
-    modules.a = moduleA;
-    modules.b = moduleB;
-  };
-  serialized7 = serialize abScope moduleB;
+  serialized7 = serialize moduleB;
 
   # ---------- groups ----------
   groupTargets = {
-    ga = mkTarget { context = ./ga; };
-    gb = mkTarget { context = ./gb; };
+    ga = mkTarget { name = "ga"; namespace = "grp"; context = ./ga; };
+    gb = mkTarget { name = "gb"; namespace = "grp"; context = ./gb; };
   };
   groupModule = {
     namespace = "grp";
@@ -82,18 +84,16 @@ let
       ];
     };
   };
-  groupScope.modules.grp = groupModule;
-  serialized8 = serialize groupScope groupModule;
+  serialized8 = serialize groupModule;
 
   # ---------- optional top-level keys ----------
   onlyTargetsModule = {
     namespace = "ot";
     targets = {
-      main = mkTarget { context = ./ot; };
+      main = mkTarget { name = "main"; namespace = "ot"; context = ./ot; };
     };
   };
-  onlyTargetsScope.modules.ot = onlyTargetsModule;
-  serialized9 = serialize onlyTargetsScope onlyTargetsModule;
+  serialized9 = serialize onlyTargetsModule;
 
   onlyGroupsModule = {
     namespace = "og";
@@ -101,25 +101,30 @@ let
       empty = [ ];
     };
   };
-  onlyGroupsScope.modules.og = onlyGroupsModule;
-  serialized10 = serialize onlyGroupsScope onlyGroupsModule;
+  serialized10 = serialize onlyGroupsModule;
 
   emptyModule = {
     namespace = "em";
   };
-  emptyScope.modules.em = emptyModule;
-  serialized11 = serialize emptyScope emptyModule;
+  serialized11 = serialize emptyModule;
 
-  # ---------- structural identity across distinct mkTarget calls ----------
-  # Two mkTarget invocations with identical inputs produce structurally-equal
-  # attrsets except for `overrideAttrs`, which is a fresh closure each call.
-  # Identity resolution must match them anyway so group members composed from
-  # a re-evaluated module still resolve to their canonical name.
+  # ---------- value-passing identity across distinct mkTarget calls ----------
+  # Under the value-self-identifying model, two mkTarget calls with the same
+  # `name` and `namespace` resolve to the same wire-format id. The serializer
+  # walks the targets attrset first, so a group member whose name matches a
+  # registered target resolves to that target's id and does not duplicate it
+  # under a synthetic name. This is the semantic replacement for the old
+  # fingerprint-matching behavior — same outcome, but driven by the explicit
+  # `name` field rather than a structural comparison of attrsets.
   identityTargetA = mkTarget {
+    name = "main";
+    namespace = "id";
     context = ./shared;
     args.VERSION = "v1";
   };
   identityTargetB = mkTarget {
+    name = "main";
+    namespace = "id";
     context = ./shared;
     args.VERSION = "v1";
   };
@@ -132,33 +137,49 @@ let
       default = [ identityTargetB ];
     };
   };
-  identityScope.modules.id = identityModule;
-  serialized12 = serialize identityScope identityModule;
+  serialized12 = serialize identityModule;
 
-  # ---------- fingerprint-robustness: functions nested inside lists ----------
-  # Two targets whose only semantic difference is an opaque function stored
-  # inside a list in `passthru`. Distinct closures compare unequal by pointer,
-  # so without full function-stripping their fingerprints would differ and
-  # identity resolution would fall through to a synthetic name.
-  fnListTargetA = mkTarget {
-    context = ./fnlist;
-    passthru.fns = [ (x: x) ];
+  # ---------- duplicate-name detection in groups ----------
+  # Two distinct values that happen to share a `name` in one group must be
+  # caught at serialize time, not silently collapsed. This is the residual
+  # safety check after the registration-time attrset-key-matches-name check
+  # — it covers the case where an `overrideAttrs` or `//` chain produces a
+  # value with the same name as another group member.
+  dupTargetX = mkTarget {
+    name = "shared";
+    namespace = "dup";
+    context = ./x;
   };
-  fnListTargetB = mkTarget {
-    context = ./fnlist;
-    passthru.fns = [ (y: y) ];
+  dupTargetY = mkTarget {
+    name = "shared";
+    namespace = "dup";
+    context = ./y;
   };
-  fnListModule = {
-    namespace = "fl";
-    targets = {
-      main = fnListTargetA;
-    };
+  dupModule = {
+    namespace = "dup";
+    targets = { };
     groups = {
-      default = [ fnListTargetB ];
+      default = [ dupTargetX dupTargetY ];
     };
   };
-  fnListScope.modules.fl = fnListModule;
-  serialized13 = serialize fnListScope fnListModule;
+
+  # ---------- hand-construction safety: target without namespace ----------
+  # A target value reaching the serializer with `name` but no `namespace`
+  # indicates it was constructed outside the per-module `lib.mkTarget` curry.
+  # The serializer throws loudly rather than emitting a wire-format entry
+  # under an ambiguous id.
+  noNsTarget = mkTarget {
+    name = "main";
+    # namespace deliberately omitted
+    context = ./.;
+  };
+  noNsModule = {
+    namespace = "ns";
+    targets = {
+      main = noNsTarget;
+    };
+    groups = { };
+  };
 in
 {
   # ---------- minimal ----------
@@ -180,6 +201,18 @@ in
   testSerializeTargetPlatforms = {
     expr = serialized5.target.main.platforms;
     expected = [ "linux/amd64" ];
+  };
+
+  # `name` and `namespace` are identity metadata; they must NOT appear in the
+  # wire-format target body (only as the attrset key).
+  testSerializeOmitsNameFromBody = {
+    expr = serialized5.target.main ? name;
+    expected = false;
+  };
+
+  testSerializeOmitsNamespaceFromBody = {
+    expr = serialized5.target.main ? namespace;
+    expected = false;
   };
 
   # ---------- target contexts ----------
@@ -240,11 +273,12 @@ in
     expected = { };
   };
 
-  # ---------- structural identity ----------
+  # ---------- value-passing identity ----------
 
-  # A group member whose value came from a distinct mkTarget call but is
-  # otherwise identical to the named target resolves to the canonical name,
-  # not a synthetic fallback.
+  # A group member whose value came from a distinct mkTarget call but
+  # carries the same `name` as a registered target resolves to the canonical
+  # name, not a synthetic fallback. Same observable outcome as the previous
+  # fingerprint-match behavior, achieved via explicit identity instead.
   testSerializeGroupResolvesDistinctButEquivalentTarget = {
     expr = serialized12.group.default.targets;
     expected = [ "main" ];
@@ -256,11 +290,17 @@ in
     expected = [ "main" ];
   };
 
-  # Function values buried inside lists (e.g., inside `passthru`) must not
-  # leak into the fingerprint. Without recursive function-stripping, distinct
-  # closures break structural equality even when every other field matches.
-  testSerializeFingerprintIgnoresFunctionsInLists = {
-    expr = serialized13.group.default.targets;
-    expected = [ "main" ];
+  # ---------- duplicate-name detection ----------
+
+  testSerializeRejectsDuplicateNamesInGroup = {
+    expr = (builtins.tryEval (builtins.deepSeq (serialize dupModule) null)).success;
+    expected = false;
+  };
+
+  # ---------- hand-construction safety ----------
+
+  testSerializeRejectsTargetWithoutNamespace = {
+    expr = (builtins.tryEval (builtins.deepSeq (serialize noNsModule) null)).success;
+    expected = false;
   };
 }

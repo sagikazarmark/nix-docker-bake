@@ -1,7 +1,15 @@
 # Serialization: walk a module graph, produce a docker-bake.json-shaped attrset.
+#
+# Identity model: each target carries `name` and `namespace` on the value
+# itself (set by core.mkTarget's allowlist and the per-module lib.mkTarget
+# curry). The serializer reads identity directly from the value — there is
+# no reverse lookup, no _scope dependency, no closure-pointer comparison.
+#
+# Anonymous values (e.g., inline targets in groups/contexts that omit `name`)
+# fall through to a synthetic-name fallback. Values that carry a `name` but
+# no `namespace` indicate a target constructed outside the per-module
+# `lib.mkTarget` curry — a hand-construction failure mode that throws loudly.
 let
-  nixLib = import ./nix-lib.nix;
-
   # Serialize a context value (path or string).
   # Paths become their absolute string form. Strings pass through.
   serializeContext =
@@ -13,65 +21,31 @@ let
     else
       throw "serializeContext: unsupported type (got ${builtins.typeOf value})";
 
-  # Reverse lookup: list of { target, fingerprint, namespace, name } entries.
-  # `fingerprint` is the target with function-valued fields stripped recursively
-  # — it lets identity resolution match targets that are structurally equal but
-  # were produced by distinct `mkTarget` calls (and therefore carry distinct
-  # `overrideAttrs` closures that Nix compares by pointer identity). Computed
-  # once per entry so lookup stays linear in the identity-map size.
-  buildIdentityMap =
-    scope:
+  # Resolve a target value to its wire-format id.
+  #
+  # - Anonymous (no name): caller-supplied fallback (synthetic name).
+  # - Has name but no namespace: hand-construction outside the per-module
+  #   curry — throw with a clear pointer at the likely cause.
+  # - Same namespace as the entry module: bare name.
+  # - Different namespace: namespace-prefixed (Docker Bake's cross-module
+  #   reference convention).
+  resolveId =
+    entryNamespace: target: fallback:
     let
-      modules = scope.modules or { };
-      moduleNames = builtins.attrNames modules;
+      n = target.name or null;
+      ns = target.namespace or null;
     in
-    builtins.concatMap (
-      modName:
-      let
-        mod = modules.${modName};
-        targetNames = builtins.attrNames (mod.targets or { });
-      in
-      map (tName: {
-        target = mod.targets.${tName};
-        fingerprint = nixLib.stripFunctions mod.targets.${tName};
-        namespace = mod.namespace;
-        name = tName;
-      }) targetNames
-    ) moduleNames;
-
-  # Two-tier identity resolution:
-  #   1. Pointer match (precise). Succeeds when the looked-up target is the
-  #      same Nix value as a named target — the common case within a single
-  #      module evaluation. This is the only way to distinguish two targets
-  #      that happen to have identical configurations (same context/args/etc).
-  #   2. Fingerprint match (coarse). Succeeds for structurally-equal targets
-  #      built by distinct `mkTarget` calls (e.g., a cross-module reference
-  #      reconstructed under a different scope evaluation).
-  findIdentity =
-    entries: target:
-    let
-      pointerMatches = builtins.filter (e: e.target == target) entries;
-    in
-    if pointerMatches != [ ] then
-      builtins.head pointerMatches
-    else
-      let
-        fp = nixLib.stripFunctions target;
-        fpMatches = builtins.filter (e: e.fingerprint == fp) entries;
-      in
-      if fpMatches == [ ] then null else builtins.head fpMatches;
-
-  computeId =
-    entryNamespace: identity: fallback:
-    if identity == null then
+    if n == null then
       fallback
-    else if identity.namespace == entryNamespace then
-      identity.name
+    else if ns == null then
+      throw "serialize: target '${n}' is missing a 'namespace' field; this typically means the target was constructed outside the per-module `lib.mkTarget` (which curries the namespace in). Either construct it via the per-module lib, or pass `namespace = \"<module>\"` explicitly."
+    else if ns == entryNamespace then
+      n
     else
-      "${identity.namespace}_${identity.name}";
+      "${ns}_${n}";
 
   walkTarget =
-    { entryNamespace, identityEntries }:
+    { entryNamespace }:
     acc: id: target:
     if acc.target ? ${id} then
       acc
@@ -87,10 +61,9 @@ let
           in
           if builtins.isAttrs ctxVal then
             let
-              ctxIdentity = findIdentity identityEntries ctxVal;
-              ctxId = computeId entryNamespace ctxIdentity "${id}__${ctxName}";
+              ctxId = resolveId entryNamespace ctxVal "${id}__${ctxName}";
             in
-            walkTarget { inherit entryNamespace identityEntries; } innerAcc ctxId ctxVal
+            walkTarget { inherit entryNamespace; } innerAcc ctxId ctxVal
           else
             innerAcc;
 
@@ -98,8 +71,7 @@ let
           ctxName: ctxVal:
           if builtins.isAttrs ctxVal then
             let
-              ctxIdentity = findIdentity identityEntries ctxVal;
-              ctxId = computeId entryNamespace ctxIdentity "${id}__${ctxName}";
+              ctxId = resolveId entryNamespace ctxVal "${id}__${ctxName}";
             in
             "target:${ctxId}"
           else
@@ -113,7 +85,8 @@ let
         hasPlatforms = target ? platforms && target.platforms != null;
 
         # Explicit allowlist — do not splat `target //` here. Unknown target
-        # attrs (e.g., `passthru`) must not leak into the serialized output.
+        # attrs (e.g., `passthru`, `name`, `namespace`) must not leak into
+        # the serialized output.
         serialized = {
           context = serializeContext target.context;
           dockerfile = target.dockerfile;
@@ -132,26 +105,46 @@ let
       in
       builtins.foldl' walkContext acc' contextNames;
 
-  # Identity entries drawn from a single module. Used to seed the lookup
-  # from the entry module directly — the scope snapshot may be stale relative
-  # to an overridden entry (the overridden module's `_scope` points at the
-  # original fixed-point, whose targets predate the override).
-  moduleIdentityEntries =
-    namespace: mod:
-    map (tName: {
-      target = mod.targets.${tName};
-      fingerprint = nixLib.stripFunctions mod.targets.${tName};
-      inherit namespace;
-      name = tName;
-    }) (builtins.attrNames (mod.targets or { }));
+  # Detect duplicate wire-format names within a single group's resolved
+  # member ids. Catches the rare residual case where two distinct values
+  # in one group end up with the same `name` despite each matching its
+  # own attrset key — typically a `//` chain that intentionally reuses a
+  # name without registering both targets under that key.
+  checkGroupDuplicates =
+    groupName: ids:
+    let
+      seen = builtins.foldl' (
+        s: id:
+        if builtins.elem id s.dups then
+          s
+        else if builtins.elem id s.ids then
+          s // { dups = s.dups ++ [ id ]; }
+        else
+          s // { ids = s.ids ++ [ id ]; }
+      ) { ids = [ ]; dups = [ ]; } ids;
+    in
+    if seen.dups == [ ] then
+      ids
+    else
+      throw "serialize: group '${groupName}' contains duplicate target name(s): ${builtins.concatStringsSep ", " seen.dups}. Each group member must serialize to a distinct wire-format id; rename the conflicting target(s) via `overrideAttrs (old: { name = \"...\"; })` or by setting `name` on the `//` patch.";
 
   serialize =
-    scope: entryModule:
+    entryModule:
     let
-      # Prepend the entry module's own targets so lookups prefer the
-      # (potentially overridden) entry view over the scope snapshot.
-      identityEntries = moduleIdentityEntries entryModule.namespace entryModule ++ buildIdentityMap scope;
-      entryNamespace = entryModule.namespace;
+      # The entry module's namespace. Read from the targets themselves
+      # (every registered target carries its namespace) rather than from
+      # the module attrset, so this works even after Phase 3 drops the
+      # `module.namespace` field. Falls back to the deprecated module field
+      # for the empty-targets case.
+      entryNamespace =
+        let
+          targets = entryModule.targets or { };
+          names = builtins.attrNames targets;
+        in
+        if names != [ ] then
+          targets.${builtins.head names}.namespace or (entryModule.namespace or null)
+        else
+          entryModule.namespace or null;
       targetNames = builtins.attrNames (entryModule.targets or { });
 
       initialAcc = {
@@ -160,7 +153,11 @@ let
 
       afterTargets = builtins.foldl' (
         acc: name:
-        walkTarget { inherit entryNamespace identityEntries; } acc name entryModule.targets.${name}
+        let
+          target = entryModule.targets.${name};
+          id = resolveId entryNamespace target name;
+        in
+        walkTarget { inherit entryNamespace; } acc id target
       ) initialAcc targetNames;
 
       groups = entryModule.groups or { };
@@ -169,10 +166,9 @@ let
       processGroupMember =
         acc: i: member:
         let
-          identity = findIdentity identityEntries member;
           syntheticName = "group__${acc.groupName}__${toString (i + 1)}";
-          id = computeId entryNamespace identity syntheticName;
-          acc' = walkTarget { inherit entryNamespace identityEntries; } acc id member;
+          id = resolveId entryNamespace member syntheticName;
+          acc' = walkTarget { inherit entryNamespace; } acc id member;
         in
         acc'
         // {
@@ -192,13 +188,14 @@ let
             m = builtins.elemAt members i;
           }) (builtins.length members);
           afterMembers = builtins.foldl' (a: im: processGroupMember a im.i im.m) innerAcc indexedMembers;
+          checkedIds = checkGroupDuplicates groupName afterMembers.ids;
         in
         acc
         // {
           target = afterMembers.target;
           groupOutputs = acc.groupOutputs // {
             ${groupName} = {
-              targets = afterMembers.ids;
+              targets = checkedIds;
             };
           };
         };

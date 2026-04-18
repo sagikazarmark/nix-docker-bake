@@ -233,16 +233,19 @@ in
 
   # ---------- Scenario 6: lib.extend through mkBakeFile ----------
 
-  # The overridden a.t is a different attrset than scope.modules.a.targets.t,
-  # so the identity lookup produces a synthetic name (t__root), not a_t.
+  # The overridden a.t is a structurally distinct attrset than the original
+  # scope.modules.a.targets.t (lib.extend re-evaluates the module fresh), but
+  # both carry the same `name`+`namespace` on the value — so identity resolves
+  # to the canonical cross-module wire id `a_t`. This is the structural fix
+  # that the previous fingerprint-fallback approach worked around.
   testIntCwsOverriddenArgInJson = {
-    expr = cwsBParsed.target.t__root.args.VAL;
+    expr = cwsBParsed.target.a_t.args.VAL;
     expected = "overridden";
   };
 
   testIntCwsCrossModuleRef = {
     expr = cwsBParsed.target.t.contexts.root;
-    expected = "target:t__root";
+    expected = "target:a_t";
   };
 
   testIntCwsBaseScopeUnaffected = {
