@@ -15,6 +15,13 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nix-unit = {
+      url = "github:nix-community/nix-unit";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
   };
 
   outputs =
@@ -26,6 +33,7 @@
         ./nix/lib.nix
         ./nix/overlay.nix
         ./nix/treefmt.nix
+        ./nix/devshell.nix
       ];
 
       perSystem =
