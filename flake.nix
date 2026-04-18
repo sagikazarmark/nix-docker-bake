@@ -34,19 +34,7 @@
         ./nix/overlay.nix
         ./nix/treefmt.nix
         ./nix/devshell.nix
+        ./nix/checks.nix
       ];
-
-      perSystem =
-        { pkgs, ... }:
-        {
-          checks = {
-            tests = pkgs.writeText "bake-tests" (
-              import ./tests {
-                inherit (pkgs) lib;
-                bake = import ./lib { };
-              }
-            );
-          };
-        };
     };
 }
