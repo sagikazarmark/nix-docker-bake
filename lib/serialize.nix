@@ -2,13 +2,31 @@
 #
 # Identity model: each target carries `name` and `namespace` on the value
 # itself (set by core.mkTarget's allowlist and the per-module lib.mkTarget
-# curry). The serializer reads identity directly from the value — there is
-# no reverse lookup, no _scope dependency, no closure-pointer comparison.
+# curry). Wire ids are resolved via a two-level classification:
 #
-# Anonymous values (e.g., inline targets in groups/contexts that omit `name`)
-# fall through to a synthetic-name fallback. Values that carry a `name` but
-# no `namespace` indicate a target constructed outside the per-module
-# `lib.mkTarget` curry — a hand-construction failure mode that throws loudly.
+#   - First-level target: a key of entryModule.targets. Wire id is `name`
+#     (PR #30 guarantees `namespace == entryNamespace` for these via
+#     registration-time stamping).
+#   - Second-level target: any target reached via walking contexts.<name>
+#     or groups.<name> and not itself a key of entryModule.targets. Wire
+#     id is `_<namespace>_<name>_<hash>`, where `hash` is an 8-hex-char
+#     content hash computed over the target's wire-format fields,
+#     excluding identity metadata (`name`, `namespace`, `overrideAttrs`,
+#     `passthru`). Sub-contexts hash recursively.
+#
+# Dedup: when emitting a second-level target, its content hash is compared
+# against an index of first-level content hashes. A match resolves the
+# reference to the first-level target's bare name rather than materializing
+# a second entry. This closes the capture hazard where a let-binding is
+# both registered under targets.<key> (post-stamp) and captured via another
+# target's contexts.<name> (pre-stamp) — the two values differ only on
+# `namespace`, so their content hashes match and dedup collapses them.
+#
+# Anonymous values (e.g., inline targets in groups/contexts that omit
+# `name`) fall through to a synthetic-name fallback. Values that carry a
+# `name` but no `namespace` indicate a target constructed outside the
+# per-module `lib.mkTarget` curry — a hand-construction failure mode that
+# throws loudly.
 let
   # Serialize a context value (path or string).
   # Paths become their absolute string form. Strings pass through.
@@ -21,16 +39,60 @@ let
     else
       throw "serializeContext: unsupported type (got ${builtins.typeOf value})";
 
+  # Stable stringification of a context value for hash input.
+  # Leaf contexts (paths, strings) use their wire form; attrset contexts
+  # (references to other targets) recurse via contentHash so the hash is
+  # purely content-addressed and independent of wire-id resolution.
+  hashContext =
+    value: if builtins.isAttrs value then "hash:${contentHash value}" else serializeContext value;
+
+  # Content hash of a target — 8 hex chars (32 bits) of sha256 over a
+  # deterministic JSON stringification of the wire-format fields.
+  #
+  # Included: context, dockerfile, target, args, tags, platforms, contexts
+  # (mirrors the `serialized` attrset in walkTarget below).
+  # Excluded: name, namespace, overrideAttrs, passthru.
+  #
+  # Nix attrsets serialize with sorted keys via builtins.toJSON, so the
+  # stringification is stable across evaluations.
+  contentHash =
+    target:
+    let
+      contexts = target.contexts or { };
+      hashedContexts = builtins.mapAttrs (_: hashContext) contexts;
+      hashInput = {
+        context = serializeContext target.context;
+        dockerfile = target.dockerfile;
+        target = target.target or null;
+        args = target.args or { };
+        tags = target.tags or null;
+        platforms = target.platforms or null;
+        contexts = hashedContexts;
+      };
+    in
+    builtins.substring 0 8 (builtins.hashString "sha256" (builtins.toJSON hashInput));
+
   # Resolve a target value to its wire-format id.
   #
   # - Anonymous (no name): caller-supplied fallback (synthetic name).
   # - Has name but no namespace: hand-construction outside the per-module
   #   curry — throw with a clear pointer at the likely cause.
-  # - Same namespace as the entry module: bare name.
-  # - Different namespace: namespace-prefixed (Docker Bake's cross-module
-  #   reference convention).
+  # - Name matches a first-level key AND content hash matches that
+  #   target: dedup to that key. This is the common case (same-module
+  #   same-name identity) and is checked first so two first-level
+  #   targets with coincidentally equal content hashes still resolve
+  #   each to its own key.
+  # - Content hash matches some first-level target: dedup to that
+  #   target's bare key. Uniform regardless of origin (own module,
+  #   foreign, scope fork) — same content = same id.
+  # - Otherwise second-level: `_<namespace>_<name>_<hash>`. The leading
+  #   underscore hides these from `docker buildx bake --list`.
+  #
+  # `firstLevelNameToHash` and `firstLevelHashIndex` are precomputed
+  # once per serialize call so the name-match check is an O(1) attrset
+  # lookup rather than a repeated contentHash recursion.
   resolveId =
-    entryNamespace: target: fallback:
+    firstLevelNameToHash: firstLevelHashIndex: target: fallback:
     let
       n = target.name or null;
       ns = target.namespace or null;
@@ -39,13 +101,19 @@ let
       fallback
     else if ns == null then
       throw "serialize: target '${n}' is missing a 'namespace' field; this typically means the target was constructed outside the per-module `lib.mkTarget` (which curries the namespace in). Either construct it via the per-module lib, or pass `namespace = \"<module>\"` explicitly."
-    else if ns == entryNamespace then
-      n
     else
-      "${ns}_${n}";
+      let
+        h = contentHash target;
+      in
+      if firstLevelNameToHash.${n} or null == h then
+        n
+      else if firstLevelHashIndex ? ${h} then
+        firstLevelHashIndex.${h}
+      else
+        "_${ns}_${n}_${h}";
 
   walkTarget =
-    { entryNamespace }:
+    { firstLevelNameToHash, firstLevelHashIndex }:
     acc: id: target:
     if acc.target ? ${id} then
       acc
@@ -61,9 +129,11 @@ let
           in
           if builtins.isAttrs ctxVal then
             let
-              ctxId = resolveId entryNamespace ctxVal "${id}__${ctxName}";
+              ctxId = resolveId firstLevelNameToHash firstLevelHashIndex ctxVal "${id}__${ctxName}";
             in
-            walkTarget { inherit entryNamespace; } innerAcc ctxId ctxVal
+            walkTarget {
+              inherit firstLevelNameToHash firstLevelHashIndex;
+            } innerAcc ctxId ctxVal
           else
             innerAcc;
 
@@ -71,7 +141,7 @@ let
           ctxName: ctxVal:
           if builtins.isAttrs ctxVal then
             let
-              ctxId = resolveId entryNamespace ctxVal "${id}__${ctxName}";
+              ctxId = resolveId firstLevelNameToHash firstLevelHashIndex ctxVal "${id}__${ctxName}";
             in
             "target:${ctxId}"
           else
@@ -107,9 +177,9 @@ let
 
   # Detect duplicate wire-format names within a single group's resolved
   # member ids. Catches the rare residual case where two distinct values
-  # in one group end up with the same `name` despite each matching its
-  # own attrset key — typically a `//` chain that intentionally reuses a
-  # name without registering both targets under that key.
+  # in one group end up with the same wire id — typically two values that
+  # content-hash-match each other but are meant to be distinct, or a
+  # hash-collision edge case.
   checkGroupDuplicates =
     groupName: ids:
     let
@@ -138,33 +208,64 @@ let
   serialize =
     entryModule:
     let
-      # The entry module's namespace. Read from the targets themselves
-      # (every registered target carries its namespace) rather than from
-      # the module attrset, so this works even after Phase 3 drops the
-      # `module.namespace` field. Falls back to the deprecated module field
-      # for the empty-targets case.
-      entryNamespace =
+      firstLevelTargets = entryModule.targets or { };
+      targetNames = builtins.attrNames firstLevelTargets;
+
+      # Map of content-hash → first-level key. Used to dedup second-level
+      # targets that content-hash-match a first-level target. A target's
+      # content hash is a deterministic function of its wire-format
+      # fields, so a second-level value that differs from its first-level
+      # counterpart only on identity metadata (namespace in particular —
+      # the PR #30 pre-stamp vs post-stamp case) collapses cleanly here.
+      #
+      # Two first-level targets can coincidentally share a content hash
+      # (e.g., identical build config under different names). listToAttrs
+      # keeps one entry per key — arbitrary which, but resolveId checks
+      # name-match first so each first-level target still resolves to
+      # its own key regardless of which entry wins this map.
+      # key → content hash. Computed once per serialize call; used by
+      # resolveId's name-match check without recomputing hashes.
+      firstLevelNameToHash = builtins.mapAttrs (_: contentHash) firstLevelTargets;
+
+      firstLevelHashIndex = builtins.listToAttrs (
+        builtins.map (key: {
+          name = firstLevelNameToHash.${key};
+          value = key;
+        }) targetNames
+      );
+
+      # Pre-flight: every first-level target must carry a namespace.
+      # resolveId enforces this when a value is referenced (via
+      # contexts or groups), but a first-level target that is not
+      # referenced anywhere else would otherwise slip through. Done
+      # via a list that forces evaluation on each entry.
+      _assertFirstLevelNamespaces = builtins.map (
+        key:
         let
-          targets = entryModule.targets or { };
-          names = builtins.attrNames targets;
+          t = firstLevelTargets.${key};
         in
-        if names != [ ] then
-          targets.${builtins.head names}.namespace or (entryModule.namespace or null)
+        if t ? name && !(t ? namespace) then
+          throw "serialize: target '${t.name}' is missing a 'namespace' field; this typically means the target was constructed outside the per-module `lib.mkTarget` (which curries the namespace in). Either construct it via the per-module lib, or pass `namespace = \"<module>\"` explicitly."
         else
-          entryModule.namespace or null;
-      targetNames = builtins.attrNames (entryModule.targets or { });
+          null
+      ) targetNames;
 
       initialAcc = {
         target = { };
       };
 
+      # First-level targets walk under their attrset keys directly.
+      # checkTargetNames (scope.nix) guarantees key == target.name, so
+      # this is equivalent to resolving via resolveId but sidesteps the
+      # hash-index lookup for the top-level pass.
       afterTargets = builtins.foldl' (
         acc: name:
         let
-          target = entryModule.targets.${name};
-          id = resolveId entryNamespace target name;
+          target = firstLevelTargets.${name};
         in
-        walkTarget { inherit entryNamespace; } acc id target
+        walkTarget {
+          inherit firstLevelNameToHash firstLevelHashIndex;
+        } acc name target
       ) initialAcc targetNames;
 
       groups = entryModule.groups or { };
@@ -174,8 +275,10 @@ let
         acc: i: member:
         let
           syntheticName = "group__${acc.groupName}__${toString (i + 1)}";
-          id = resolveId entryNamespace member syntheticName;
-          acc' = walkTarget { inherit entryNamespace; } acc id member;
+          id = resolveId firstLevelNameToHash firstLevelHashIndex member syntheticName;
+          acc' = walkTarget {
+            inherit firstLevelNameToHash firstLevelHashIndex;
+          } acc id member;
         in
         acc'
         // {
@@ -214,9 +317,11 @@ let
         }
       ) groupNames;
     in
-    (if afterGroups.target != { } then { target = afterGroups.target; } else { })
-    // (if afterGroups.groupOutputs != { } then { group = afterGroups.groupOutputs; } else { });
+    builtins.deepSeq _assertFirstLevelNamespaces (
+      (if afterGroups.target != { } then { target = afterGroups.target; } else { })
+      // (if afterGroups.groupOutputs != { } then { group = afterGroups.groupOutputs; } else { })
+    );
 in
 {
-  inherit serialize;
+  inherit serialize contentHash;
 }

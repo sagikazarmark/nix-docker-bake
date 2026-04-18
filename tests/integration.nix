@@ -105,20 +105,31 @@ in
 
   # ---------- Scenario 2: middle module — cross-module contexts ----------
 
+  # Cross-module context references are second-level wire ids:
+  # `_<namespace>_<name>_<hash>` with a leading underscore to hide from
+  # `docker buildx bake --list`.
   testIntMiddleMainCrossModuleRef = {
-    expr = middleSer.target.main.contexts.root;
-    expected = "target:base_main";
+    expr = builtins.match "target:_base_main_[0-9a-f]+" middleSer.target.main.contexts.root != null;
+    expected = true;
   };
 
   testIntMiddlePullsInBaseMain = {
-    expr = middleSer.target ? base_main;
+    expr = builtins.any (n: builtins.match "_base_main_.*" n != null) (
+      builtins.attrNames middleSer.target
+    );
     expected = true;
   };
 
-  testIntMiddleBaseMainContextIsStorePath = {
-    expr = builtins.match "/nix/store/.*base.*context" middleSer.target.base_main.context != null;
-    expected = true;
-  };
+  testIntMiddleBaseMainContextIsStorePath =
+    let
+      baseMainKey = builtins.head (
+        builtins.filter (n: builtins.match "_base_main_.*" n != null) (builtins.attrNames middleSer.target)
+      );
+    in
+    {
+      expr = builtins.match "/nix/store/.*base.*context" middleSer.target.${baseMainKey}.context != null;
+      expected = true;
+    };
 
   testIntMiddleOwnBaseTargetStage = {
     expr = middleSer.target.base.target;
@@ -149,32 +160,48 @@ in
   # ---------- Scenario 3: top module — deep cross-module chain ----------
 
   testIntTopPrimaryRefMiddle = {
-    expr = topSer.target.primary.contexts.root;
-    expected = "target:middle_main";
-  };
-
-  testIntTopPullsInMiddleMain = {
-    expr = topSer.target ? middle_main;
+    expr = builtins.match "target:_middle_main_[0-9a-f]+" topSer.target.primary.contexts.root != null;
     expected = true;
   };
 
-  testIntTopTransitiveMiddleRefBase = {
-    expr = topSer.target.middle_main.contexts.root;
-    expected = "target:base_main";
+  testIntTopPullsInMiddleMain = {
+    expr = builtins.any (n: builtins.match "_middle_main_.*" n != null) (
+      builtins.attrNames topSer.target
+    );
+    expected = true;
   };
 
+  # Transitive: the pulled-in middle_main target carries middle's
+  # cross-module reference into base, which is also second-level.
+  testIntTopTransitiveMiddleRefBase =
+    let
+      middleMainKey = builtins.head (
+        builtins.filter (n: builtins.match "_middle_main_.*" n != null) (builtins.attrNames topSer.target)
+      );
+    in
+    {
+      expr =
+        builtins.match "target:_base_main_[0-9a-f]+" topSer.target.${middleMainKey}.contexts.root != null;
+      expected = true;
+    };
+
   testIntTopPullsInBaseMain = {
-    expr = topSer.target ? base_main;
+    expr = builtins.any (n: builtins.match "_base_main_.*" n != null) (
+      builtins.attrNames topSer.target
+    );
     expected = true;
   };
 
   testIntTopSecondaryRefMiddleReady = {
-    expr = topSer.target.secondary.contexts.root;
-    expected = "target:middle_ready";
+    expr =
+      builtins.match "target:_middle_ready_[0-9a-f]+" topSer.target.secondary.contexts.root != null;
+    expected = true;
   };
 
   testIntTopPullsInMiddleReady = {
-    expr = topSer.target ? middle_ready;
+    expr = builtins.any (n: builtins.match "_middle_ready_.*" n != null) (
+      builtins.attrNames topSer.target
+    );
     expected = true;
   };
 
@@ -190,28 +217,43 @@ in
 
   # ---------- Scenario 4: aggregator — groups with foreign targets ----------
 
+  # Aggregator has no first-level targets. All group members are foreign
+  # (second-level) and serialize to hash-suffixed wire ids.
   testIntAggregatorGroupMembers = {
-    expr = builtins.sort builtins.lessThan aggregatorSer.group.default.targets;
+    expr = builtins.sort builtins.lessThan (
+      builtins.map (
+        id:
+        let
+          m = builtins.match "(_base_main|_middle_main)_[0-9a-f]+" id;
+        in
+        if m == null then id else builtins.head m
+      ) aggregatorSer.group.default.targets
+    );
     expected = [
-      "base_main"
-      "middle_main"
+      "_base_main"
+      "_middle_main"
     ];
   };
 
   testIntAggregatorPullsInMiddleMain = {
-    expr = aggregatorSer.target ? middle_main;
+    expr = builtins.any (n: builtins.match "_middle_main_.*" n != null) (
+      builtins.attrNames aggregatorSer.target
+    );
     expected = true;
   };
 
   testIntAggregatorPullsInBaseMain = {
-    expr = aggregatorSer.target ? base_main;
+    expr = builtins.any (n: builtins.match "_base_main_.*" n != null) (
+      builtins.attrNames aggregatorSer.target
+    );
     expected = true;
   };
 
-  # The aggregator has no own targets, so only foreign targets and their
-  # transitive deps should appear.
+  # The aggregator has no own targets, so only foreign second-level
+  # targets (and their transitive deps) should appear, all with the
+  # `_<ns>_<name>_<hash>` shape.
   testIntAggregatorNoOwnNamespaceTargets = {
-    expr = builtins.filter (n: !(builtins.match "(base|middle)_.*" n != null)) (
+    expr = builtins.filter (n: builtins.match "_(base|middle)_.*" n == null) (
       builtins.attrNames aggregatorSer.target
     );
     expected = [ ];
@@ -232,18 +274,23 @@ in
   # ---------- Scenario 6: lib.extend through mkBakeFile ----------
 
   # The overridden a.t is a structurally distinct attrset than the original
-  # scope.modules.a.targets.t (lib.extend re-evaluates the module fresh), but
-  # both carry the same `name`+`namespace` on the value — so identity resolves
-  # to the canonical cross-module wire id `a_t`. This is the structural fix
-  # that the previous fingerprint-fallback approach worked around.
-  testIntCwsOverriddenArgInJson = {
-    expr = cwsBParsed.target.a_t.args.VAL;
-    expected = "overridden";
-  };
+  # scope.modules.a.targets.t (lib.extend re-evaluates the module fresh).
+  # Both carry the same `name`+`namespace`, but the foreign reference goes
+  # through the second-level content-addressed wire id.
+  testIntCwsOverriddenArgInJson =
+    let
+      atKey = builtins.head (
+        builtins.filter (n: builtins.match "_a_t_.*" n != null) (builtins.attrNames cwsBParsed.target)
+      );
+    in
+    {
+      expr = cwsBParsed.target.${atKey}.args.VAL;
+      expected = "overridden";
+    };
 
   testIntCwsCrossModuleRef = {
-    expr = cwsBParsed.target.t.contexts.root;
-    expected = "target:a_t";
+    expr = builtins.match "target:_a_t_[0-9a-f]+" cwsBParsed.target.t.contexts.root != null;
+    expected = true;
   };
 
   testIntCwsBaseScopeUnaffected = {
