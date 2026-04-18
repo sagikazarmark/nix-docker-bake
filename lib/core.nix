@@ -88,24 +88,23 @@ rec {
     let
       pathStr = toString modulePath;
       prefix = "checkModule: module at '${pathStr}'";
-      typeName = v: if v == null then "null" else builtins.typeOf v;
     in
     if !builtins.isAttrs module then
-      throw "${prefix} did not return an attrset (got: ${typeName module})"
+      throw "${prefix} did not return an attrset (got: ${builtins.typeOf module})"
     else if !(module ? namespace) then
       throw "${prefix} is missing required attribute 'namespace'"
     else if !builtins.isString module.namespace then
-      throw "${prefix} has non-string 'namespace' (got: ${typeName module.namespace})"
+      throw "${prefix} has non-string 'namespace' (got: ${builtins.typeOf module.namespace})"
     else if module.namespace == "" then
       throw "${prefix} has empty 'namespace'"
     else if module ? targets && !builtins.isAttrs module.targets then
-      throw "${prefix} has non-attrset 'targets' (got: ${typeName module.targets})"
+      throw "${prefix} has non-attrset 'targets' (got: ${builtins.typeOf module.targets})"
     else if module ? groups && !builtins.isAttrs module.groups then
-      throw "${prefix} has non-attrset 'groups' (got: ${typeName module.groups})"
+      throw "${prefix} has non-attrset 'groups' (got: ${builtins.typeOf module.groups})"
     else if module ? groups && !(builtins.all builtins.isList (builtins.attrValues module.groups)) then
       throw "${prefix} has a non-list group value in 'groups'"
     else if module ? passthru && !builtins.isAttrs module.passthru then
-      throw "${prefix} has non-attrset 'passthru' (got: ${typeName module.passthru})"
+      throw "${prefix} has non-attrset 'passthru' (got: ${builtins.typeOf module.passthru})"
     else
       module;
 }
