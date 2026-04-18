@@ -83,8 +83,15 @@ rec {
 
   # Validate a module's return shape. Throws with a clear message identifying
   # the offending module path. Returns the module unchanged on success.
-  # Shape: { namespace = string; targets = attrset?; groups = attrset?; }
-  # Both `targets` and `groups` are optional; absent means `{}`.
+  # Shape: { targets = attrset?; groups = attrset?; passthru = attrset?; }
+  # All fields are optional; absent means `{}` (or absent in the output).
+  #
+  # Namespace is no longer carried on the module return value — the registry
+  # key in `mkScope { modules.<key> = ...; }` is the canonical namespace, and
+  # it's pre-applied to every target via the per-module `lib.mkTarget` curry
+  # (see lib/scope.nix). Modules that still return a `namespace` field are
+  # tolerated (the field is ignored), so existing modules don't break in the
+  # transition window.
   checkModule =
     modulePath: module:
     let
@@ -93,12 +100,6 @@ rec {
     in
     if !builtins.isAttrs module then
       throw "${prefix} did not return an attrset (got: ${builtins.typeOf module})"
-    else if !(module ? namespace) then
-      throw "${prefix} is missing required attribute 'namespace'"
-    else if !builtins.isString module.namespace then
-      throw "${prefix} has non-string 'namespace' (got: ${builtins.typeOf module.namespace})"
-    else if module.namespace == "" then
-      throw "${prefix} has empty 'namespace'"
     else if module ? targets && !builtins.isAttrs module.targets then
       throw "${prefix} has non-attrset 'targets' (got: ${builtins.typeOf module.targets})"
     else if module ? groups && !builtins.isAttrs module.groups then

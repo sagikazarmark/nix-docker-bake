@@ -31,7 +31,6 @@ let
   };
 in
 {
-  namespace = "top";
   targets = {
     inherit primary secondary;
   };

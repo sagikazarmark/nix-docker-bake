@@ -40,6 +40,34 @@ let
           # (final: prev: ...) form (e.g., self-referential rewrites).
           override = attrs: extend (_: _: attrs);
 
+          # Validate that every registered target's `name` field matches
+          # its attrset key. Catches the three silent-collision idioms:
+          #   (1) let-binding identifier ≠ attrset key
+          #   (2) `//` composition silently inheriting `name` from LHS
+          #   (3) project-level wrapper helpers compounding (1) or (2)
+          # Fires at module-registration time, before mkBakeFile ever
+          # runs — fail-fast on a typo. Uses `builtins.all` (strict on
+          # its elements) to force each per-target validation eagerly,
+          # so the throw fires when the module is registered, not when
+          # someone later accesses `module.targets.<key>`.
+          checkTargetNames =
+            modName: targets:
+            let
+              validate =
+                key:
+                let
+                  target = targets.${key};
+                in
+                if !(target ? name) then
+                  throw "module '${modName}': targets.${key} is missing the required 'name' field. Add `name = \"${key}\"` to the mkTarget call."
+                else if target.name != key then
+                  throw "module '${modName}': targets.${key} has name '${target.name}' but is registered under key '${key}'. The `name` field and the attrset key must match — did you derive this target via `//` or `overrideAttrs` and forget to set `name = \"${key}\"` on the patch?"
+                else
+                  true;
+              allValid = builtins.all validate (builtins.attrNames targets);
+            in
+            if allValid then targets else throw "unreachable";
+
           libFunctions = {
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
@@ -50,49 +78,26 @@ let
             # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
             # `_scope` is retained for backward compatibility (some consumers
             # may read it); the serializer no longer depends on it.
+            #
+            # callBake invoked at the user level (outside mkScope's per-module
+            # mapAttrs) does NOT stamp `namespace` on the returned module
+            # value — the user is expected to supply a `lib` whose `mkTarget`
+            # is curried with the desired namespace if they intend to serialize
+            # the result. The registered-module path below handles the common
+            # case automatically.
             callBake =
               modulePath: overrides:
               let
                 fn = import modulePath;
                 autoArgs = builtins.intersectAttrs (builtins.functionArgs fn) self;
-                # Module-name context for error messages. Best-effort:
-                # callBake can be invoked outside the module-resolution path,
-                # in which case the path basename is the most useful label.
-                modLabel = baseNameOf (toString modulePath);
-                # Validate that every registered target's `name` field matches
-                # its attrset key. Catches the three silent-collision idioms:
-                #   (1) let-binding identifier ≠ attrset key
-                #   (2) `//` composition silently inheriting `name` from LHS
-                #   (3) project-level wrapper helpers compounding (1) or (2)
-                # Fires at module-registration time, before mkBakeFile ever
-                # runs — fail-fast on a typo. Uses `builtins.all` (strict on
-                # its elements) to force each per-target validation eagerly,
-                # so the throw fires when the module is registered, not when
-                # someone later accesses `module.targets.<key>`.
-                checkTargetNames =
-                  modName: targets:
-                  let
-                    validate =
-                      key:
-                      let
-                        target = targets.${key};
-                      in
-                      if !(target ? name) then
-                        throw "module '${modName}': targets.${key} is missing the required 'name' field. Add `name = \"${key}\"` to the mkTarget call."
-                      else if target.name != key then
-                        throw "module '${modName}': targets.${key} has name '${target.name}' but is registered under key '${key}'. The `name` field and the attrset key must match — did you derive this target via `//` or `overrideAttrs` and forget to set `name = \"${key}\"` on the patch?"
-                      else
-                        true;
-                    allValid = builtins.all validate (builtins.attrNames targets);
-                  in
-                  if allValid then targets else throw "unreachable";
+                pathLabel = baseNameOf (toString modulePath);
                 mkModule =
                   extraArgs:
                   let
                     raw = core.checkModule modulePath (fn (autoArgs // overrides // extraArgs));
                     checked =
                       if raw ? targets then
-                        raw // { targets = checkTargetNames modLabel raw.targets; }
+                        raw // { targets = checkTargetNames pathLabel raw.targets; }
                       else
                         raw;
                   in
@@ -125,8 +130,20 @@ let
               mkContextWith = core.mkContextWith moduleName;
               mkTarget = attrs: core.mkTarget (attrs // { namespace = moduleName; });
             };
+            # Stamp `namespace = moduleName` on the module value (the registry
+            # key IS the namespace under D1=a). Recursively re-applies through
+            # `.override` so chained overrides preserve the stamp. The module
+            # function no longer needs to return a `namespace` field; if it
+            # does, the registry-key stamp wins.
+            stampNamespace =
+              mod:
+              mod
+              // {
+                namespace = moduleName;
+                override = newArgs: stampNamespace (mod.override newArgs);
+              };
           in
-          libFunctions.callBake modulePath { lib = moduleLib; }
+          stampNamespace (libFunctions.callBake modulePath { lib = moduleLib; })
         ) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;

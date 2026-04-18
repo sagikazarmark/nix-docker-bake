@@ -5,7 +5,6 @@ let
   scopeTestModuleFile = builtins.toFile "scope-test-mod.nix" ''
     { lib, myConfigValue, ... }:
     {
-      namespace = "test";
       targets = { main = lib.mkTarget { name = "main"; context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
     }
@@ -30,7 +29,6 @@ let
   aFile = builtins.toFile "cbws-a.nix" ''
     { lib, val, ... }:
     {
-      namespace = "a";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
@@ -40,7 +38,6 @@ let
     let
       aOverridden = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
-      namespace = "b";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = aOverridden.targets.t; }; };
       groups = {};
     }
@@ -80,7 +77,6 @@ let
   sharedA = builtins.toFile "shallow-a.nix" ''
     { lib, shared, ... }:
     {
-      namespace = "a";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = shared; }; };
       groups = {};
     }
@@ -88,7 +84,6 @@ let
   sharedB = builtins.toFile "shallow-b.nix" ''
     { lib, shared, ... }:
     {
-      namespace = "b";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = shared; }; };
       groups = {};
     }
@@ -108,7 +103,6 @@ let
   libOverrideAFile = builtins.toFile "libov-a.nix" ''
     { lib, val, ... }:
     {
-      namespace = "a";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
@@ -118,7 +112,6 @@ let
     let
       aOverridden = (lib.override { val = "via-lib-override"; }).modules.a;
     in {
-      namespace = "b";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = aOverridden.targets.t; }; };
       groups = {};
     }
@@ -136,7 +129,6 @@ let
   perModuleArgFile = builtins.toFile "permod-arg.nix" ''
     { lib, version ? "1.0.0", ... }:
     {
-      namespace = "perm";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = version; }; };
       groups = {};
     }
@@ -167,7 +159,6 @@ let
   nameMismatchFile = builtins.toFile "name-mismatch.nix" ''
     { lib, ... }:
     {
-      namespace = "nm";
       targets = { foo = lib.mkTarget { name = "bar"; context = ./.; }; };
       groups = {};
     }
@@ -180,7 +171,6 @@ let
       base = lib.mkTarget { name = "base"; context = ./.; };
       derived = base // { tags = [ "x" ]; };  # name still "base", not "derived"
     in {
-      namespace = "si";
       targets = { inherit base; derived = derived; };
       groups = {};
     }
@@ -190,7 +180,6 @@ let
   missingNameFile = builtins.toFile "missing-name.nix" ''
     { lib, ... }:
     {
-      namespace = "mn";
       targets = { main = lib.mkTarget { context = ./.; }; };
       groups = {};
     }

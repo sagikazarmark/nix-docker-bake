@@ -39,7 +39,6 @@ let
   cwsAFile = builtins.toFile "cws-a.nix" ''
     { lib, val, ... }:
     {
-      namespace = "a";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
@@ -48,7 +47,6 @@ let
     { lib, ... }:
     let a = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
-      namespace = "b";
       targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = a.targets.t; }; };
       groups = {};
     }

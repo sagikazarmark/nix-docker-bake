@@ -6,7 +6,6 @@ let
   ctxWith = lib.mkContextWith { path = ./.; };
 in
 {
-  namespace = "ctxmod";
   targets = {
     main = lib.mkTarget { name = "main"; context = ctx; };
   };

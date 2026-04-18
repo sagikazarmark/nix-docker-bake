@@ -2,8 +2,10 @@
 let
   inherit (bake) checkModule;
 
+  # Minimal valid module under D1=a: namespace is no longer carried on the
+  # module return value (the registry key in mkScope is the canonical
+  # namespace). Both `targets` and `groups` are optional.
   validModule = {
-    namespace = "n";
     targets = { };
     groups = { };
   };
@@ -14,46 +16,23 @@ in
     expected = validModule;
   };
 
-  testCheckModuleThrowsMissingNamespace = {
-    expr =
-      (builtins.tryEval (
-        checkModule ./x {
-          targets = { };
-          groups = { };
-        }
-      )).success;
-    expected = false;
+  testCheckModulePassesEmptyAttrset = {
+    expr = checkModule ./x { };
+    expected = { };
   };
 
-  testCheckModuleThrowsNonStringNamespace = {
-    expr =
-      (builtins.tryEval (
-        checkModule ./x {
-          namespace = 42;
-          targets = { };
-          groups = { };
-        }
-      )).success;
-    expected = false;
-  };
-
-  testCheckModuleThrowsEmptyNamespace = {
-    expr =
-      (builtins.tryEval (
-        checkModule ./x {
-          namespace = "";
-          targets = { };
-          groups = { };
-        }
-      )).success;
-    expected = false;
+  # Modules that still return a `namespace` field are tolerated for
+  # transitional compatibility — the field is ignored downstream (the
+  # per-module curry stamps namespace from the registry key instead).
+  testCheckModuleToleratesLegacyNamespace = {
+    expr = checkModule ./x (validModule // { namespace = "legacy"; });
+    expected = validModule // { namespace = "legacy"; };
   };
 
   testCheckModuleThrowsNonAttrsetTargets = {
     expr =
       (builtins.tryEval (
         checkModule ./x {
-          namespace = "n";
           targets = [ ];
           groups = { };
         }
@@ -65,7 +44,6 @@ in
     expr =
       (builtins.tryEval (
         checkModule ./x {
-          namespace = "n";
           targets = { };
           groups = {
             default = { };
@@ -77,30 +55,19 @@ in
 
   testCheckModulePassesOnlyTargets = {
     expr = checkModule ./x {
-      namespace = "n";
       targets = { };
     };
     expected = {
-      namespace = "n";
       targets = { };
     };
   };
 
   testCheckModulePassesOnlyGroups = {
     expr = checkModule ./x {
-      namespace = "n";
       groups = { };
     };
     expected = {
-      namespace = "n";
       groups = { };
-    };
-  };
-
-  testCheckModulePassesNamespaceOnly = {
-    expr = checkModule ./x { namespace = "n"; };
-    expected = {
-      namespace = "n";
     };
   };
 

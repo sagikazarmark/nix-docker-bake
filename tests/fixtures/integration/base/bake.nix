@@ -16,7 +16,6 @@ let
   };
 in
 {
-  namespace = "base";
   targets = {
     inherit main;
   };

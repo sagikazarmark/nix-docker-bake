@@ -40,7 +40,6 @@ let
   };
 in
 {
-  namespace = "middle";
   targets = {
     inherit main;
     base = baseTarget;

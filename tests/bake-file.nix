@@ -5,7 +5,6 @@ let
   moduleFile = builtins.toFile "bake-file-mod.nix" ''
     { lib, myConfigValue, ... }:
     {
-      namespace = "test";
       targets = { main = lib.mkTarget { name = "main"; context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
     }
@@ -48,7 +47,6 @@ let
       main = lib.mkTarget { name = "main"; context = ./.; args.VERSION = version; };
       worker = lib.mkTarget { name = "worker"; context = ./.; args.VERSION = version; };
     in {
-      namespace = "demo";
       targets = { inherit main worker; };
       groups.default = [ main worker ];
     }
@@ -83,7 +81,6 @@ let
         contexts.base = base;
       };
     in {
-      namespace = "ctxref";
       targets = { inherit base derived; };
       groups = {};
     }
