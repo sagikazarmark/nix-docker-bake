@@ -40,7 +40,7 @@ let
     { lib, val, ... }:
     {
       namespace = "a";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
   '';
@@ -49,7 +49,7 @@ let
     let a = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
       namespace = "b";
-      targets = { t = lib.mkTarget { context = ./.; contexts.root = a.targets.t; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = a.targets.t; }; };
       groups = {};
     }
   '';

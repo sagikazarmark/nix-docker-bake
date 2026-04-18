@@ -6,7 +6,7 @@ let
     { lib, myConfigValue, ... }:
     {
       namespace = "test";
-      targets = { main = lib.mkTarget { context = ./.; args.VAL = myConfigValue; }; };
+      targets = { main = lib.mkTarget { name = "main"; context = ./.; args.VAL = myConfigValue; }; };
       groups = {};
     }
   '';
@@ -31,7 +31,7 @@ let
     { lib, val, ... }:
     {
       namespace = "a";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
   '';
@@ -41,7 +41,7 @@ let
       aOverridden = (lib.extend (final: prev: { val = "overridden"; })).modules.a;
     in {
       namespace = "b";
-      targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = aOverridden.targets.t; }; };
       groups = {};
     }
   '';
@@ -81,7 +81,7 @@ let
     { lib, shared, ... }:
     {
       namespace = "a";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = shared; }; };
       groups = {};
     }
   '';
@@ -89,7 +89,7 @@ let
     { lib, shared, ... }:
     {
       namespace = "b";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = shared; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = shared; }; };
       groups = {};
     }
   '';
@@ -109,7 +109,7 @@ let
     { lib, val, ... }:
     {
       namespace = "a";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = val; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = val; }; };
       groups = {};
     }
   '';
@@ -119,7 +119,7 @@ let
       aOverridden = (lib.override { val = "via-lib-override"; }).modules.a;
     in {
       namespace = "b";
-      targets = { t = lib.mkTarget { context = ./.; contexts.root = aOverridden.targets.t; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; contexts.root = aOverridden.targets.t; }; };
       groups = {};
     }
   '';
@@ -137,7 +137,7 @@ let
     { lib, version ? "1.0.0", ... }:
     {
       namespace = "perm";
-      targets = { t = lib.mkTarget { context = ./.; args.VAL = version; }; };
+      targets = { t = lib.mkTarget { name = "t"; context = ./.; args.VAL = version; }; };
       groups = {};
     }
   '';

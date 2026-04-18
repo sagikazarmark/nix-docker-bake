@@ -7,6 +7,7 @@
 }:
 let
   main = lib.mkTarget {
+    name = "main";
     context = lib.mkContext ./.;
     inherit platforms;
     contexts = {

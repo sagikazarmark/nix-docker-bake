@@ -9,6 +9,8 @@ rec {
     attrs:
     let
       allowedKeys = [
+        "name"
+        "namespace"
         "context"
         "dockerfile"
         "target"

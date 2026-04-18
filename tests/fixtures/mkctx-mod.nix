@@ -8,7 +8,7 @@ in
 {
   namespace = "ctxmod";
   targets = {
-    main = lib.mkTarget { context = ctx; };
+    main = lib.mkTarget { name = "main"; context = ctx; };
   };
   groups = { };
   _ctxStr = toString ctx;

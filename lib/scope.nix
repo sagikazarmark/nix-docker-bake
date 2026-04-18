@@ -79,10 +79,15 @@ let
           let
             # Per-module lib: mkContext/mkContextWith are pre-applied with the
             # module name so authors write `lib.mkContext ./path` instead of
-            # `lib.mkContext "kubeadm" ./path`.
+            # `lib.mkContext "kubeadm" ./path`. mkTarget is curried with
+            # `namespace = moduleName` so every target constructed inside a
+            # module is born with its namespace intrinsic to the value — the
+            # serializer never has to reverse-look-up which module a target
+            # came from.
             moduleLib = libFunctions // {
               mkContext = core.mkContext moduleName;
               mkContextWith = core.mkContextWith moduleName;
+              mkTarget = attrs: core.mkTarget (attrs // { namespace = moduleName; });
             };
           in
           libFunctions.callBake modulePath { lib = moduleLib; }
