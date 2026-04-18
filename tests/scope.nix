@@ -267,6 +267,229 @@ let
       b = nsPreserveBFile;
     };
   };
+
+  # ---------- content-addressed dedup fixtures (issue #31) ----------
+  #
+  # The capture hazard: a let-binding that is both registered under
+  # `targets.<key>` AND captured via another registered target's
+  # `contexts.<name>`. The registered copy gets post-stamp by PR #30;
+  # the captured copy is pre-stamp (carries the LHS's silently-inherited
+  # foreign namespace). Nix values are immutable, so the two copies are
+  # distinct attrsets that differ only on `namespace`. Without
+  # content-addressed dedup, the serializer materializes both: one as
+  # the first-level `base`, the other as a spurious `a_base`. #31
+  # collapses them by content hash.
+
+  dedupAFile = builtins.toFile "dedup-a.nix" ''
+    { lib, ... }:
+    {
+      targets.base = lib.mkTarget { name = "base"; context = ./.; };
+      groups = {};
+    }
+  '';
+
+  # b registers `base` (a `//` re-export, stamp rewrites ns → "b") AND
+  # captures the pre-stamp let-binding via `main.contexts.root`. Before
+  # #31 that produced a third `a_base` entry; after #31 the two content-
+  # hash-match and collapse into the first-level `base`.
+  dedupBFile = builtins.toFile "dedup-b.nix" ''
+    { lib, a, ... }:
+    let
+      aBase = a.targets.base // { name = "base"; };
+    in
+    {
+      targets = {
+        base = aBase;
+        main = lib.mkTarget {
+          name = "main";
+          context = ./.;
+          contexts.root = aBase;
+        };
+      };
+      groups = {};
+    }
+  '';
+
+  dedupScope = mkScope {
+    config = { };
+    modules = {
+      a = dedupAFile;
+      b = dedupBFile;
+    };
+  };
+  dedupParsed = builtins.fromJSON (builtins.readFile (mkBakeFile dedupScope.modules.b));
+
+  # Transitive dedup (cri pattern from issue #31 trace 1): two first-
+  # level let-bindings, one captured pre-stamp by the other. Content
+  # hash matches the registered counterpart → dedup into the first-
+  # level id. No `_containerd_<hash>` entry appears.
+  triCAFile = builtins.toFile "tri-c.nix" ''
+    { lib, ... }:
+    {
+      targets.base = lib.mkTarget { name = "base"; context = ./.; };
+      groups = {};
+    }
+  '';
+  triBFile = builtins.toFile "tri-b.nix" ''
+    { lib, c, ... }:
+    let
+      containerdBase = c.targets.base // { name = "containerd"; };
+      crioBase = c.targets.base // {
+        name = "crio";
+        contexts.root = containerdBase;
+      };
+    in
+    {
+      targets = {
+        containerd = containerdBase;
+        crio = crioBase;
+      };
+      groups = {};
+    }
+  '';
+  triScope = mkScope {
+    config = { };
+    modules = {
+      c = triCAFile;
+      b = triBFile;
+    };
+  };
+  triParsed = builtins.fromJSON (builtins.readFile (mkBakeFile triScope.modules.b));
+
+  # Foreign second-level (no dedup): b.main.contexts.root = a.targets.base
+  # where b registers no counterpart. No hash match anywhere in b's
+  # first-level set → emits as `_a_base_<hash>`.
+  foreignAFile = builtins.toFile "foreign-a.nix" ''
+    { lib, ... }:
+    {
+      targets.base = lib.mkTarget { name = "base"; context = ./.; };
+      groups = {};
+    }
+  '';
+  foreignBFile = builtins.toFile "foreign-b.nix" ''
+    { lib, a, ... }:
+    {
+      targets.main = lib.mkTarget {
+        name = "main";
+        context = ./.;
+        contexts.root = a.targets.base;
+      };
+      groups = {};
+    }
+  '';
+  foreignScope = mkScope {
+    config = { };
+    modules = {
+      a = foreignAFile;
+      b = foreignBFile;
+    };
+  };
+  foreignParsed = builtins.fromJSON (builtins.readFile (mkBakeFile foreignScope.modules.b));
+
+  # Scope-fork with patched args (harikubeadm-cluster pattern): a second-
+  # level target derived from a scope-forked target, with args differing
+  # from any first-level target. Content hash distinct → emits as
+  # `_<ns>_<name>_<hash>`, does NOT collapse.
+  forkAFile = builtins.toFile "fork-a.nix" ''
+    { lib, version ? "v1", ... }:
+    {
+      targets.base = lib.mkTarget {
+        name = "base";
+        context = ./.;
+        args.VERSION = version;
+      };
+      groups = {};
+    }
+  '';
+  forkBFile = builtins.toFile "fork-b.nix" ''
+    { lib, a, ... }:
+    let
+      # Scope-forked a with patched args; referenced without registering.
+      patched = (lib.override { version = "v2"; }).modules.a;
+    in
+    {
+      targets = {
+        base = lib.mkTarget {
+          name = "base";
+          context = ./.;
+          args.VERSION = "v1";
+        };
+        main = lib.mkTarget {
+          name = "main";
+          context = ./.;
+          contexts.root = patched.targets.base;
+        };
+      };
+      groups = {};
+    }
+  '';
+  forkScope = mkScope {
+    config = { };
+    modules = {
+      a = forkAFile;
+      b = forkBFile;
+    };
+  };
+  forkParsed = builtins.fromJSON (builtins.readFile (mkBakeFile forkScope.modules.b));
+
+  # Cross-scope-fork uniform dedup: when a scope-forked target's
+  # content hash DOES match a first-level target, it collapses into
+  # the first-level id — no origin-based carve-out.
+  uniformBFile = builtins.toFile "uniform-b.nix" ''
+    { lib, a, ... }:
+    let
+      # Scope-forked a; default args still "v1" (identical content).
+      forked = (lib.override { }).modules.a;
+    in
+    {
+      targets = {
+        base = lib.mkTarget {
+          name = "base";
+          context = ./.;
+          args.VERSION = "v1";
+        };
+        main = lib.mkTarget {
+          name = "main";
+          context = ./.;
+          contexts.root = forked.targets.base;
+        };
+      };
+      groups = {};
+    }
+  '';
+  uniformScope = mkScope {
+    config = { };
+    modules = {
+      a = forkAFile;
+      b = uniformBFile;
+    };
+  };
+  uniformParsed = builtins.fromJSON (builtins.readFile (mkBakeFile uniformScope.modules.b));
+
+  # Groups + dedup: a group member captured pre-stamp from another
+  # module resolves to the first-level bare name via content-hash
+  # dedup, not to a hash-suffixed wire id.
+  groupDedupBFile = builtins.toFile "group-dedup-b.nix" ''
+    { lib, a, ... }:
+    let
+      aBase = a.targets.base // { name = "base"; };
+    in
+    {
+      targets = {
+        base = aBase;
+        main = lib.mkTarget { name = "main"; context = ./.; };
+      };
+      groups.default = [ aBase ];
+    }
+  '';
+  groupDedupScope = mkScope {
+    config = { };
+    modules = {
+      a = dedupAFile;
+      b = groupDedupBFile;
+    };
+  };
+  groupDedupParsed = builtins.fromJSON (builtins.readFile (mkBakeFile groupDedupScope.modules.b));
 in
 {
   # ---------- mkScope ----------
@@ -650,5 +873,109 @@ in
         tags = [ "x" ];
       })).namespace;
     expected = "b";
+  };
+
+  # ---------- content-addressed dedup (issue #31) ----------
+
+  # Reproducer from issue #31: `main.contexts.root` captures the pre-
+  # stamp `aBase` let-binding while `targets.base = aBase` is also
+  # registered. Content-hash dedup collapses the capture into the
+  # first-level `base` — bake file has exactly two target entries.
+  testDedupCollapseReproducer = {
+    expr = builtins.sort (x: y: x < y) (builtins.attrNames dedupParsed.target);
+    expected = [
+      "base"
+      "main"
+    ];
+  };
+
+  testDedupCollapseContextReference = {
+    expr = dedupParsed.target.main.contexts.root;
+    expected = "target:base";
+  };
+
+  # Transitive dedup (cri pattern): crio's pre-stamp containerdBase
+  # capture collapses into the registered `containerd` first-level. No
+  # `_containerd_<hash>` entry appears; the bake file has exactly two
+  # target entries.
+  testTransitiveDedupFirstLevelOnly = {
+    expr = builtins.sort (x: y: x < y) (builtins.attrNames triParsed.target);
+    expected = [
+      "containerd"
+      "crio"
+    ];
+  };
+
+  testTransitiveDedupCrioContext = {
+    expr = triParsed.target.crio.contexts.root;
+    expected = "target:containerd";
+  };
+
+  # Foreign second-level reference (no dedup): captured target has no
+  # counterpart in entry module's first-level set → emits as hash-
+  # suffixed wire id with leading underscore.
+  testForeignSecondLevelPrefixedId = {
+    expr = builtins.match "target:_a_base_[0-9a-f]{8}" foreignParsed.target.main.contexts.root != null;
+    expected = true;
+  };
+
+  testForeignSecondLevelEmitsEntry = {
+    expr = builtins.any (n: builtins.match "_a_base_.*" n != null) (
+      builtins.attrNames foreignParsed.target
+    );
+    expected = true;
+  };
+
+  # Scope-fork with patched args: same `name` as first-level but
+  # distinct content → emits as second-level, does NOT collapse.
+  testScopeForkPatchedArgsNoCollapse = {
+    expr = builtins.any (n: builtins.match "_a_base_.*" n != null) (
+      builtins.attrNames forkParsed.target
+    );
+    expected = true;
+  };
+
+  testScopeForkPatchedArgsMainContextIsSecondLevel = {
+    expr = builtins.match "target:_a_base_[0-9a-f]{8}" forkParsed.target.main.contexts.root != null;
+    expected = true;
+  };
+
+  # Guard: the first-level `base` in forkScope.b does NOT collapse the
+  # second-level patched `a.base` into itself (different args → different
+  # hashes). Both entries must be present.
+  testScopeForkPatchedArgsFirstLevelUnaffected = {
+    expr = forkParsed.target ? base;
+    expected = true;
+  };
+
+  # Cross-scope-fork uniform dedup: when the forked target's content
+  # hash matches a first-level target, it collapses — no origin carve-
+  # out. Here uniform.b.main.contexts.root is a scope-forked a.base
+  # with identical content to uniform.b.targets.base → dedup to `base`.
+  testCrossScopeForkUniformDedup = {
+    expr = uniformParsed.target.main.contexts.root;
+    expected = "target:base";
+  };
+
+  testCrossScopeForkUniformNoExtraEntry = {
+    expr = builtins.sort (x: y: x < y) (builtins.attrNames uniformParsed.target);
+    expected = [
+      "base"
+      "main"
+    ];
+  };
+
+  # Group members dedup into first-level names via content hash.
+  testGroupDedupsToFirstLevelName = {
+    expr = groupDedupParsed.group.default.targets;
+    expected = [ "base" ];
+  };
+
+  testGroupDedupDoesNotEmitExtraTarget = {
+    expr = builtins.sort (x: y: x < y) (builtins.attrNames groupDedupParsed.target);
+    expected = [
+      "base"
+      "main"
+    ];
   };
 }

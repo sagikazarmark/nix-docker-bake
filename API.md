@@ -142,6 +142,23 @@ This makes `.override` and `lib.extend` re-evaluations produce byte-identical ba
 bakeFile = bake.lib.mkBakeFile scope.modules.hello;
 ```
 
+### Wire-id classification
+
+The serializer emits two kinds of target entries:
+
+- **First-level**: a target registered under `entryModule.targets.<key>`.
+  Wire id is the bare `name` (equal to `<key>`; enforced by the attrset-key-matches-name check).
+- **Second-level**: a target reached by walking `contexts.<name>` or a group member that is not itself a key of `entryModule.targets`.
+  Wire id is `_<namespace>_<name>_<hash>`, where `<hash>` is the first 8 hex chars of a sha256 over the target's wire-format fields.
+  The hash excludes identity metadata (`name`, `namespace`, `overrideAttrs`, `passthru`) and hashes `contexts` recursively.
+  The leading underscore keeps second-level entries out of `docker buildx bake --list`.
+
+Before emitting a second-level target, the serializer checks its content hash against the first-level set.
+A match resolves the reference to the first-level bare name and skips emission of a duplicate entry — the dedup criterion is content hash alone, independent of origin (own module, foreign module, scope fork).
+This closes the capture hazard around let-bindings that are both registered under `targets.<key>` (post-namespace-stamp) and captured via another target's `contexts.<name>` (pre-stamp): the two copies differ only on `namespace`, so their content hashes match and they collapse.
+
+Consumers that need to force distinctness for two targets with otherwise-identical content should add a discriminating field (e.g., a noop arg or label).
+
 ## `module.override attrs`
 
 Every resolved module in a scope (`scope.<name>`, `scope.modules.<name>`, or the result of `lib.callBake`) carries an `.override` method that re-evaluates the module with `attrs` shallow-merged onto its current arguments.

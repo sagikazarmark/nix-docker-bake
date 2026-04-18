@@ -1,8 +1,10 @@
 { bake, ... }:
 let
   inherit (bake) mkTarget;
-  # Access serialize via the internal path; tests are framework-internal.
-  serialize = (import ../lib/serialize.nix).serialize;
+  # Access serialize/contentHash via the internal path; tests are
+  # framework-internal.
+  internal = import ../lib/serialize.nix;
+  inherit (internal) serialize contentHash;
 
   # Modules in this file are constructed by hand (not via mkScope), so each
   # mkTarget call sets `namespace` explicitly — the per-module curry that
@@ -151,12 +153,12 @@ let
   };
   serialized12 = serialize identityModule;
 
-  # ---------- duplicate-name detection in groups ----------
-  # Two distinct values that happen to share a `name` in one group must be
-  # caught at serialize time, not silently collapsed. This is the residual
-  # safety check after the registration-time attrset-key-matches-name check
-  # — it covers the case where an `overrideAttrs` or `//` chain produces a
-  # value with the same name as another group member.
+  # ---------- duplicate-wire-id detection in groups ----------
+  # Under content-addressing, two values with identical content resolve
+  # to the same wire id. Listing them both in one group is redundant;
+  # the dup check surfaces it as an error rather than silently emitting
+  # a group with a repeated member. Same-name-but-different-content
+  # values emit distinct `_<ns>_<name>_<hash>` ids and are NOT flagged.
   dupTargetX = mkTarget {
     name = "shared";
     namespace = "dup";
@@ -165,7 +167,7 @@ let
   dupTargetY = mkTarget {
     name = "shared";
     namespace = "dup";
-    context = ./y;
+    context = ./x;
   };
   dupModule = {
     namespace = "dup";
@@ -195,6 +197,98 @@ let
     };
     groups = { };
   };
+
+  # ---------- content hash properties ----------
+  # Baseline target for hash sensitivity/stability checks.
+  hashBase = mkTarget {
+    name = "base";
+    namespace = "h";
+    context = ./ctx;
+    dockerfile = "Dockerfile";
+    args = {
+      A = "1";
+    };
+    tags = [ "t:1" ];
+    platforms = [ "linux/amd64" ];
+  };
+  hashBaseCopy = mkTarget {
+    name = "base";
+    namespace = "h";
+    context = ./ctx;
+    dockerfile = "Dockerfile";
+    args = {
+      A = "1";
+    };
+    tags = [ "t:1" ];
+    platforms = [ "linux/amd64" ];
+  };
+  # Renaming changes identity metadata only — hash must be unchanged.
+  hashRenamed = hashBase // {
+    name = "renamed";
+    namespace = "other";
+  };
+  # overrideAttrs patches that only touch identity metadata also must
+  # not shift the hash. Guards the code path where the rebuilt target's
+  # .overrideAttrs closure itself sits in the target attrset.
+  hashOverrideAttrsRenamed = hashBase.overrideAttrs (_: {
+    name = "renamed";
+    namespace = "other";
+  });
+
+  # Targets whose "empty" collection fields (tags/args) are supplied
+  # explicitly must hash the same as targets that omit those fields.
+  # walkTarget drops empty collections from the wire output; contentHash
+  # must mirror that so two targets with byte-identical wire output
+  # produce the same wire id.
+  hashEmptyTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    tags = [ ];
+  };
+  hashNoTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+  };
+  hashEmptyArgs = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    args = { };
+  };
+  hashNullTags = mkTarget {
+    name = "x";
+    namespace = "h";
+    context = ./ctx;
+    tags = null;
+  };
+  # Context change shifts the hash.
+  hashCtxChanged = hashBase.overrideAttrs (_: {
+    context = ./ctx-other;
+  });
+  # Args change shifts the hash.
+  hashArgsChanged = hashBase.overrideAttrs (old: {
+    args = old.args // {
+      A = "2";
+    };
+  });
+  # Dockerfile change shifts the hash.
+  hashDockerfileChanged = hashBase.overrideAttrs (_: {
+    dockerfile = "Dockerfile.alt";
+  });
+  # Sub-context change shifts the hash (hashContext recurses into attrset
+  # contexts, so changes inside the referenced target propagate).
+  hashWithCtxRef = hashBase.overrideAttrs (_: {
+    contexts = {
+      root = hashBase;
+    };
+  });
+  hashWithCtxRefChangedInner = hashBase.overrideAttrs (_: {
+    contexts = {
+      root = hashArgsChanged;
+    };
+  });
 in
 {
   # ---------- minimal ----------
@@ -248,9 +342,13 @@ in
   };
 
   # ---------- cross-module identity ----------
+  # A foreign target referenced via contexts (not registered under
+  # targets.<key> in the entry module) is a second-level target: wire id
+  # is `_<namespace>_<name>_<hash>`. Its content hash doesn't match any
+  # first-level target in moduleB, so no dedup.
   testSerializeCrossModuleIdentity = {
     expr = serialized7.target.uses.contexts.root;
-    expected = "target:a_shared";
+    expected = "target:_a_shared_${contentHash sharedTarget}";
   };
 
   # ---------- groups ----------
@@ -317,5 +415,73 @@ in
   testSerializeRejectsTargetWithoutNamespace = {
     expr = (builtins.tryEval (builtins.deepSeq (serialize noNsModule) null)).success;
     expected = false;
+  };
+
+  # ---------- content hash properties ----------
+
+  # Two independently-constructed targets with byte-identical content
+  # produce the same hash — deterministic stringification is stable.
+  testContentHashIsStable = {
+    expr = contentHash hashBase == contentHash hashBaseCopy;
+    expected = true;
+  };
+
+  # Hash excludes name, namespace, overrideAttrs — these are identity
+  # metadata, not content.
+  testContentHashIgnoresName = {
+    expr = contentHash hashBase == contentHash hashRenamed;
+    expected = true;
+  };
+
+  testContentHashIgnoresOverrideAttrsIdentityOnly = {
+    expr = contentHash hashBase == contentHash hashOverrideAttrsRenamed;
+    expected = true;
+  };
+
+  # Sensitivity to content-relevant fields.
+  testContentHashSensitiveToContext = {
+    expr = contentHash hashBase == contentHash hashCtxChanged;
+    expected = false;
+  };
+
+  testContentHashSensitiveToArgs = {
+    expr = contentHash hashBase == contentHash hashArgsChanged;
+    expected = false;
+  };
+
+  testContentHashSensitiveToDockerfile = {
+    expr = contentHash hashBase == contentHash hashDockerfileChanged;
+    expected = false;
+  };
+
+  # Sub-context changes propagate through recursive hashing.
+  testContentHashRecursesIntoSubContexts = {
+    expr = contentHash hashWithCtxRef == contentHash hashWithCtxRefChangedInner;
+    expected = false;
+  };
+
+  # Hash format: 8 hex characters.
+  testContentHashShape = {
+    expr = builtins.match "[0-9a-f]{8}" (contentHash hashBase) != null;
+    expected = true;
+  };
+
+  # tags = [] and tags absent serialize identically in walkTarget; hash
+  # must match to avoid divergent wire ids for targets that emit the
+  # same build config.
+  testContentHashEmptyTagsEqualsMissingTags = {
+    expr = contentHash hashEmptyTags == contentHash hashNoTags;
+    expected = true;
+  };
+
+  testContentHashNullTagsEqualsMissingTags = {
+    expr = contentHash hashNullTags == contentHash hashNoTags;
+    expected = true;
+  };
+
+  # args = {} and args absent: same normalization rule as tags above.
+  testContentHashEmptyArgsEqualsMissingArgs = {
+    expr = contentHash hashEmptyArgs == contentHash hashNoTags;
+    expected = true;
   };
 }
