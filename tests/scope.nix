@@ -1,6 +1,6 @@
 { bake, ... }:
 let
-  inherit (bake) mkScope;
+  inherit (bake) mkScope mkBakeFile;
 
   scopeTestModuleFile = builtins.toFile "scope-test-mod.nix" ''
     { lib, myConfigValue, ... }:
@@ -184,6 +184,89 @@ let
       groups = {};
     }
   '';
+
+  # Registration-time namespace stamping.
+  #
+  # `//` composition silently inherits `namespace` from the LHS, the same
+  # way it inherits `name`. Unlike `name` (which the author writes on every
+  # mkTarget call and must match the attrset key), `namespace` is curried
+  # in by the per-module lib.mkTarget — the author never writes it. So the
+  # fix is to STAMP namespace at registration rather than throw, reifying
+  # the D1=a "registry key IS the namespace" invariant structurally.
+  nsStampAFile = builtins.toFile "ns-stamp-a.nix" ''
+    { lib, ... }:
+    {
+      targets.base = lib.mkTarget { name = "base"; context = ./.; };
+      groups = {};
+    }
+  '';
+
+  # b re-exports a's target under its own key. Naive `//` leaves
+  # namespace = "a"; stamping rewrites it to "b".
+  nsStampBFile = builtins.toFile "ns-stamp-b.nix" ''
+    { lib, a, ... }:
+    {
+      targets = {
+        base = a.targets.base // { name = "base"; };
+        main = lib.mkTarget { name = "main"; context = ./.; };
+      };
+      groups = {};
+    }
+  '';
+
+  nsStampScope = mkScope {
+    config = { };
+    modules = {
+      a = nsStampAFile;
+      b = nsStampBFile;
+    };
+  };
+
+  nsStampBake = mkBakeFile nsStampScope.modules.b;
+  nsStampParsed = builtins.fromJSON (builtins.readFile nsStampBake);
+
+  # `.override` re-runs the module function through makeOverridable; the
+  # stamp must re-apply, not be lost.
+  nsStampOverrideFile = builtins.toFile "ns-stamp-override.nix" ''
+    { lib, a, version ? "v1", ... }:
+    {
+      targets = {
+        base = a.targets.base // { name = "base"; };
+        main = lib.mkTarget { name = "main"; context = ./.; args.V = version; };
+      };
+      groups = {};
+    }
+  '';
+  nsStampOverrideScope = mkScope {
+    config = { };
+    modules = {
+      a = nsStampAFile;
+      b = nsStampOverrideFile;
+    };
+  };
+  nsStampOverridden = nsStampOverrideScope.modules.b.override { version = "v2"; };
+
+  # A foreign target used in `contexts.<name>` (not registered under
+  # `targets.<key>`) must KEEP its foreign namespace — that's how the
+  # serializer emits a cross-module reference like `target:a_base`.
+  nsPreserveBFile = builtins.toFile "ns-preserve-b.nix" ''
+    { lib, a, ... }:
+    {
+      targets.main = lib.mkTarget {
+        name = "main";
+        context = ./.;
+        contexts.root = a.targets.base;
+      };
+      groups = {};
+    }
+  '';
+  nsPreserveScope = mkScope {
+    config = { };
+    modules = {
+      a = nsStampAFile;
+      b = nsPreserveBFile;
+    };
+  };
 in
 {
   # ---------- mkScope ----------
@@ -506,5 +589,66 @@ in
         }).mn.targets
       ).success;
     expected = false;
+  };
+
+  # ---------- namespace stamping (registration-time) ----------
+
+  # A `//` re-exported target has its silently-inherited foreign namespace
+  # overwritten to the registering module's name.
+  testRegistrationStampsReExportedTargetNamespace = {
+    expr = nsStampScope.b.targets.base.namespace;
+    expected = "b";
+  };
+
+  # Native-construction targets already carry the correct namespace via the
+  # per-module `lib.mkTarget` curry — assert the stamp is a no-op here (not
+  # a silent rewrite that could mask unrelated bugs).
+  testRegistrationStampPreservesCurriedNamespace = {
+    expr = nsStampScope.b.targets.main.namespace;
+    expected = "b";
+  };
+
+  # End-to-end reproducer from issue #29. Without the stamp, the
+  # alphabetically-first target (`base`) carries namespace "a", so
+  # entryNamespace becomes "a" and `main` is emitted as `b_main`. With
+  # the stamp, both targets are bare under module b's own namespace.
+  testRegistrationStampEmitsBareTargetNames = {
+    expr = builtins.sort (x: y: x < y) (builtins.attrNames nsStampParsed.target);
+    expected = [
+      "base"
+      "main"
+    ];
+  };
+
+  testRegistrationStampDoesNotEmitPrefixedOwnTarget = {
+    expr = nsStampParsed.target ? b_main;
+    expected = false;
+  };
+
+  # The stamp survives `.override`: re-resolving through makeOverridable
+  # re-runs the module function and must re-stamp.
+  testRegistrationStampSurvivesOverride = {
+    expr = nsStampOverridden.targets.base.namespace;
+    expected = "b";
+  };
+
+  # Foreign targets used as `contexts.<name>` values (not registered under
+  # `targets.<key>`) retain their original namespace — otherwise
+  # cross-module references would silently collapse into local references.
+  testRegistrationStampLeavesContextValuesUntouched = {
+    expr = nsPreserveScope.b.targets.main.contexts.root.namespace;
+    expected = "a";
+  };
+
+  # `.overrideAttrs` on a stamped target must not revive the pre-stamp
+  # namespace. This is the reason stampTarget rebuilds through core.mkTarget
+  # (so the target's overrideAttrs closure captures the stamped state)
+  # instead of using a cheaper `t // { namespace = ...; }`.
+  testRegistrationStampSurvivesOverrideAttrs = {
+    expr =
+      (nsStampScope.b.targets.base.overrideAttrs (_: {
+        tags = [ "x" ];
+      })).namespace;
+    expected = "b";
   };
 }
