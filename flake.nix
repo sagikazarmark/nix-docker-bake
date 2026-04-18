@@ -10,6 +10,11 @@
     };
 
     systems.url = "github:nix-systems/default";
+
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -20,6 +25,7 @@
       imports = [
         ./nix/lib.nix
         ./nix/overlay.nix
+        ./nix/treefmt.nix
       ];
 
       perSystem =
@@ -33,8 +39,6 @@
               }
             );
           };
-
-          formatter = pkgs.nixfmt-tree;
         };
     };
 }
