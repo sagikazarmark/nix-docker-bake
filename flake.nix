@@ -35,6 +35,7 @@
         ./nix/treefmt.nix
         ./nix/devshell.nix
         ./nix/checks.nix
+        ./nix/templates.nix
       ];
     };
 }

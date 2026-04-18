@@ -35,6 +35,12 @@ The trade-off: you write Nix (plain functions that return attrsets; this is *not
 
 </details>
 
+## Quickstart from template
+
+    nix flake init -t github:sagikazarmark/nix-docker-bake
+
+This scaffolds a minimal `flake.nix`, `bake.nix`, and `Dockerfile`.
+
 ## Installation
 
 Add the library as a flake input:
