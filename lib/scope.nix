@@ -127,14 +127,28 @@ let
               mkContextWith = core.mkContextWith moduleName;
               mkTarget = attrs: core.mkTarget (attrs // { namespace = moduleName; });
             };
-            # Stamp `namespace = moduleName` on the module value (the registry
-            # key IS the namespace under D1=a). Recursively re-applies through
-            # `.override` so chained overrides preserve the stamp. The module
-            # function no longer needs to return a `namespace` field; if it
-            # does, the registry-key stamp wins.
+            # Stamp `namespace = moduleName` on the module value AND on every
+            # registered target. The registry key IS the namespace (D1=a);
+            # stamping at registration makes that invariant structural rather
+            # than relying on author discipline, so `//` re-exports of foreign
+            # targets (which silently inherit the LHS's namespace) cannot leak
+            # into the serialized bake file as spurious cross-module references.
+            # Targets are rebuilt via core.mkTarget so each one's overrideAttrs
+            # closure captures the stamped state; a subsequent `.overrideAttrs`
+            # won't revive the pre-stamp namespace.
+            # Values referenced via `contexts.<name>` are untouched — foreign
+            # namespaces there are how cross-module references work.
+            # Recursively re-applies through `.override` so chained overrides
+            # preserve the stamp.
+            stampTarget =
+              t: core.mkTarget ((builtins.removeAttrs t [ "overrideAttrs" ]) // { namespace = moduleName; });
             stampNamespace =
               mod:
-              mod
+              let
+                stamped =
+                  if mod ? targets then mod // { targets = builtins.mapAttrs (_: stampTarget) mod.targets; } else mod;
+              in
+              stamped
               // {
                 namespace = moduleName;
                 override = newArgs: stampNamespace (mod.override newArgs);
