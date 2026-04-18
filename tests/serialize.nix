@@ -6,14 +6,9 @@ let
   internal = import ../lib/serialize.nix;
   inherit (internal) serialize contentHash;
 
-  # Modules in this file are constructed by hand (not via mkScope), so each
-  # mkTarget call sets `namespace` explicitly — the per-module curry that
-  # normally injects it is bypassed here.
-
   # ---------- minimal serialize ----------
   minimalTarget = mkTarget {
     name = "main";
-    namespace = "test";
     context = ./foo;
     platforms = [ "linux/amd64" ];
     args = {
@@ -21,7 +16,6 @@ let
     };
   };
   minimalModule = {
-    namespace = "test";
     targets = {
       main = minimalTarget;
     };
@@ -34,14 +28,12 @@ let
   innerTarget = mkTarget { context = ./inner; };
   outerTarget = mkTarget {
     name = "outer";
-    namespace = "cross";
     context = ./outer;
     contexts = {
       root = innerTarget;
     };
   };
   crossModule = {
-    namespace = "cross";
     targets = {
       outer = outerTarget;
     };
@@ -50,17 +42,16 @@ let
   serialized6 = serialize crossModule;
 
   # ---------- cross-module identity ----------
+  # A foreign target referenced via contexts (not registered under
+  # targets.<key> in the entry module) is a second-level target.
   sharedTarget = mkTarget {
     name = "shared";
-    namespace = "a";
     context = ./shared;
   };
   moduleB = {
-    namespace = "b";
     targets = {
       uses = mkTarget {
         name = "uses";
-        namespace = "b";
         context = ./uses;
         contexts = {
           root = sharedTarget;
@@ -75,17 +66,14 @@ let
   groupTargets = {
     ga = mkTarget {
       name = "ga";
-      namespace = "grp";
       context = ./ga;
     };
     gb = mkTarget {
       name = "gb";
-      namespace = "grp";
       context = ./gb;
     };
   };
   groupModule = {
-    namespace = "grp";
     targets = groupTargets;
     groups = {
       default = [
@@ -98,11 +86,9 @@ let
 
   # ---------- optional top-level keys ----------
   onlyTargetsModule = {
-    namespace = "ot";
     targets = {
       main = mkTarget {
         name = "main";
-        namespace = "ot";
         context = ./ot;
       };
     };
@@ -110,40 +96,32 @@ let
   serialized9 = serialize onlyTargetsModule;
 
   onlyGroupsModule = {
-    namespace = "og";
     groups = {
       empty = [ ];
     };
   };
   serialized10 = serialize onlyGroupsModule;
 
-  emptyModule = {
-    namespace = "em";
-  };
+  emptyModule = { };
   serialized11 = serialize emptyModule;
 
   # ---------- value-passing identity across distinct mkTarget calls ----------
   # Under the value-self-identifying model, two mkTarget calls with the same
-  # `name` and `namespace` resolve to the same wire-format id. The serializer
+  # `name` and content resolve to the same wire-format id. The serializer
   # walks the targets attrset first, so a group member whose name matches a
   # registered target resolves to that target's id and does not duplicate it
-  # under a synthetic name. This is the semantic replacement for the old
-  # fingerprint-matching behavior — same outcome, but driven by the explicit
-  # `name` field rather than a structural comparison of attrsets.
+  # under a synthetic name.
   identityTargetA = mkTarget {
     name = "main";
-    namespace = "id";
     context = ./shared;
     args.VERSION = "v1";
   };
   identityTargetB = mkTarget {
     name = "main";
-    namespace = "id";
     context = ./shared;
     args.VERSION = "v1";
   };
   identityModule = {
-    namespace = "id";
     targets = {
       main = identityTargetA;
     };
@@ -158,19 +136,16 @@ let
   # to the same wire id. Listing them both in one group is redundant;
   # the dup check surfaces it as an error rather than silently emitting
   # a group with a repeated member. Same-name-but-different-content
-  # values emit distinct `_<ns>_<name>_<hash>` ids and are NOT flagged.
+  # values emit distinct `_<name>_<hash>` ids and are NOT flagged.
   dupTargetX = mkTarget {
     name = "shared";
-    namespace = "dup";
     context = ./x;
   };
   dupTargetY = mkTarget {
     name = "shared";
-    namespace = "dup";
     context = ./x;
   };
   dupModule = {
-    namespace = "dup";
     targets = { };
     groups = {
       default = [
@@ -180,29 +155,10 @@ let
     };
   };
 
-  # ---------- hand-construction safety: target without namespace ----------
-  # A target value reaching the serializer with `name` but no `namespace`
-  # indicates it was constructed outside the per-module `lib.mkTarget` curry.
-  # The serializer throws loudly rather than emitting a wire-format entry
-  # under an ambiguous id.
-  noNsTarget = mkTarget {
-    name = "main";
-    # namespace deliberately omitted
-    context = ./.;
-  };
-  noNsModule = {
-    namespace = "ns";
-    targets = {
-      main = noNsTarget;
-    };
-    groups = { };
-  };
-
   # ---------- content hash properties ----------
   # Baseline target for hash sensitivity/stability checks.
   hashBase = mkTarget {
     name = "base";
-    namespace = "h";
     context = ./ctx;
     dockerfile = "Dockerfile";
     args = {
@@ -213,7 +169,6 @@ let
   };
   hashBaseCopy = mkTarget {
     name = "base";
-    namespace = "h";
     context = ./ctx;
     dockerfile = "Dockerfile";
     args = {
@@ -225,14 +180,12 @@ let
   # Renaming changes identity metadata only — hash must be unchanged.
   hashRenamed = hashBase // {
     name = "renamed";
-    namespace = "other";
   };
   # overrideAttrs patches that only touch identity metadata also must
   # not shift the hash. Guards the code path where the rebuilt target's
   # .overrideAttrs closure itself sits in the target attrset.
   hashOverrideAttrsRenamed = hashBase.overrideAttrs (_: {
     name = "renamed";
-    namespace = "other";
   });
 
   # Targets whose "empty" collection fields (tags/args) are supplied
@@ -242,24 +195,20 @@ let
   # produce the same wire id.
   hashEmptyTags = mkTarget {
     name = "x";
-    namespace = "h";
     context = ./ctx;
     tags = [ ];
   };
   hashNoTags = mkTarget {
     name = "x";
-    namespace = "h";
     context = ./ctx;
   };
   hashEmptyArgs = mkTarget {
     name = "x";
-    namespace = "h";
     context = ./ctx;
     args = { };
   };
   hashNullTags = mkTarget {
     name = "x";
-    namespace = "h";
     context = ./ctx;
     tags = null;
   };
@@ -312,15 +261,10 @@ in
     expected = [ "linux/amd64" ];
   };
 
-  # `name` and `namespace` are identity metadata; they must NOT appear in the
-  # wire-format target body (only as the attrset key).
+  # `name` is identity metadata; it must NOT appear in the wire-format
+  # target body (only as the attrset key).
   testSerializeOmitsNameFromBody = {
     expr = serialized5.target.main ? name;
-    expected = false;
-  };
-
-  testSerializeOmitsNamespaceFromBody = {
-    expr = serialized5.target.main ? namespace;
     expected = false;
   };
 
@@ -344,11 +288,11 @@ in
   # ---------- cross-module identity ----------
   # A foreign target referenced via contexts (not registered under
   # targets.<key> in the entry module) is a second-level target: wire id
-  # is `_<namespace>_<name>_<hash>`. Its content hash doesn't match any
-  # first-level target in moduleB, so no dedup.
+  # is `_<name>_<hash>`. Its content hash doesn't match any first-level
+  # target in moduleB, so no dedup.
   testSerializeCrossModuleIdentity = {
     expr = serialized7.target.uses.contexts.root;
-    expected = "target:_a_shared_${contentHash sharedTarget}";
+    expected = "target:_shared_${contentHash sharedTarget}";
   };
 
   # ---------- groups ----------
@@ -390,8 +334,7 @@ in
 
   # A group member whose value came from a distinct mkTarget call but
   # carries the same `name` as a registered target resolves to the canonical
-  # name, not a synthetic fallback. Same observable outcome as the previous
-  # fingerprint-match behavior, achieved via explicit identity instead.
+  # name, not a synthetic fallback.
   testSerializeGroupResolvesDistinctButEquivalentTarget = {
     expr = serialized12.group.default.targets;
     expected = [ "main" ];
@@ -410,13 +353,6 @@ in
     expected = false;
   };
 
-  # ---------- hand-construction safety ----------
-
-  testSerializeRejectsTargetWithoutNamespace = {
-    expr = (builtins.tryEval (builtins.deepSeq (serialize noNsModule) null)).success;
-    expected = false;
-  };
-
   # ---------- content hash properties ----------
 
   # Two independently-constructed targets with byte-identical content
@@ -426,8 +362,8 @@ in
     expected = true;
   };
 
-  # Hash excludes name, namespace, overrideAttrs — these are identity
-  # metadata, not content.
+  # Hash excludes name, overrideAttrs — these are identity metadata,
+  # not content.
   testContentHashIgnoresName = {
     expr = contentHash hashBase == contentHash hashRenamed;
     expected = true;
