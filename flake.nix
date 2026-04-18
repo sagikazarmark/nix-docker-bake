@@ -17,9 +17,9 @@
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
 
-      flake = {
-        lib = import ./lib { };
-      };
+      imports = [
+        ./nix/lib.nix
+      ];
 
       perSystem =
         { pkgs, ... }:
