@@ -1,5 +1,7 @@
 # Serialization: walk a module graph, produce a docker-bake.json-shaped attrset.
 let
+  nixLib = import ./nix-lib.nix;
+
   # Serialize a context value (path or string).
   # Paths become their absolute string form. Strings pass through.
   serializeContext =
@@ -11,7 +13,12 @@ let
     else
       throw "serializeContext: unsupported type (got ${builtins.typeOf value})";
 
-  # Reverse lookup: list of { target, namespace, name } entries.
+  # Reverse lookup: list of { target, fingerprint, namespace, name } entries.
+  # `fingerprint` is the target with function-valued fields stripped recursively
+  # — it lets identity resolution match targets that are structurally equal but
+  # were produced by distinct `mkTarget` calls (and therefore carry distinct
+  # `overrideAttrs` closures that Nix compares by pointer identity). Computed
+  # once per entry so lookup stays linear in the identity-map size.
   buildIdentityMap =
     scope:
     let
@@ -26,17 +33,33 @@ let
       in
       map (tName: {
         target = mod.targets.${tName};
+        fingerprint = nixLib.stripFunctions mod.targets.${tName};
         namespace = mod.namespace;
         name = tName;
       }) targetNames
     ) moduleNames;
 
+  # Two-tier identity resolution:
+  #   1. Pointer match (precise). Succeeds when the looked-up target is the
+  #      same Nix value as a named target — the common case within a single
+  #      module evaluation. This is the only way to distinguish two targets
+  #      that happen to have identical configurations (same context/args/etc).
+  #   2. Fingerprint match (coarse). Succeeds for structurally-equal targets
+  #      built by distinct `mkTarget` calls (e.g., a cross-module reference
+  #      reconstructed under a different scope evaluation).
   findIdentity =
     entries: target:
     let
-      matches = builtins.filter (e: e.target == target) entries;
+      pointerMatches = builtins.filter (e: e.target == target) entries;
     in
-    if matches == [ ] then null else builtins.head matches;
+    if pointerMatches != [ ] then
+      builtins.head pointerMatches
+    else
+      let
+        fp = nixLib.stripFunctions target;
+        fpMatches = builtins.filter (e: e.fingerprint == fp) entries;
+      in
+      if fpMatches == [ ] then null else builtins.head fpMatches;
 
   computeId =
     entryNamespace: identity: fallback:
@@ -109,10 +132,25 @@ let
       in
       builtins.foldl' walkContext acc' contextNames;
 
+  # Identity entries drawn from a single module. Used to seed the lookup
+  # from the entry module directly — the scope snapshot may be stale relative
+  # to an overridden entry (the overridden module's `_scope` points at the
+  # original fixed-point, whose targets predate the override).
+  moduleIdentityEntries =
+    namespace: mod:
+    map (tName: {
+      target = mod.targets.${tName};
+      fingerprint = nixLib.stripFunctions mod.targets.${tName};
+      inherit namespace;
+      name = tName;
+    }) (builtins.attrNames (mod.targets or { }));
+
   serialize =
     scope: entryModule:
     let
-      identityEntries = buildIdentityMap scope;
+      # Prepend the entry module's own targets so lookups prefer the
+      # (potentially overridden) entry view over the scope snapshot.
+      identityEntries = moduleIdentityEntries entryModule.namespace entryModule ++ buildIdentityMap scope;
       entryNamespace = entryModule.namespace;
       targetNames = builtins.attrNames (entryModule.targets or { });
 

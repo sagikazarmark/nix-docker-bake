@@ -109,6 +109,56 @@ let
   };
   emptyScope.modules.em = emptyModule;
   serialized11 = serialize emptyScope emptyModule;
+
+  # ---------- structural identity across distinct mkTarget calls ----------
+  # Two mkTarget invocations with identical inputs produce structurally-equal
+  # attrsets except for `overrideAttrs`, which is a fresh closure each call.
+  # Identity resolution must match them anyway so group members composed from
+  # a re-evaluated module still resolve to their canonical name.
+  identityTargetA = mkTarget {
+    context = ./shared;
+    args.VERSION = "v1";
+  };
+  identityTargetB = mkTarget {
+    context = ./shared;
+    args.VERSION = "v1";
+  };
+  identityModule = {
+    namespace = "id";
+    targets = {
+      main = identityTargetA;
+    };
+    groups = {
+      default = [ identityTargetB ];
+    };
+  };
+  identityScope.modules.id = identityModule;
+  serialized12 = serialize identityScope identityModule;
+
+  # ---------- fingerprint-robustness: functions nested inside lists ----------
+  # Two targets whose only semantic difference is an opaque function stored
+  # inside a list in `passthru`. Distinct closures compare unequal by pointer,
+  # so without full function-stripping their fingerprints would differ and
+  # identity resolution would fall through to a synthetic name.
+  fnListTargetA = mkTarget {
+    context = ./fnlist;
+    passthru.fns = [ (x: x) ];
+  };
+  fnListTargetB = mkTarget {
+    context = ./fnlist;
+    passthru.fns = [ (y: y) ];
+  };
+  fnListModule = {
+    namespace = "fl";
+    targets = {
+      main = fnListTargetA;
+    };
+    groups = {
+      default = [ fnListTargetB ];
+    };
+  };
+  fnListScope.modules.fl = fnListModule;
+  serialized13 = serialize fnListScope fnListModule;
 in
 {
   # ---------- minimal ----------
@@ -188,5 +238,29 @@ in
   testSerializeEmptyModule = {
     expr = serialized11;
     expected = { };
+  };
+
+  # ---------- structural identity ----------
+
+  # A group member whose value came from a distinct mkTarget call but is
+  # otherwise identical to the named target resolves to the canonical name,
+  # not a synthetic fallback.
+  testSerializeGroupResolvesDistinctButEquivalentTarget = {
+    expr = serialized12.group.default.targets;
+    expected = [ "main" ];
+  };
+
+  # No duplicate target entry is emitted when identity resolves correctly.
+  testSerializeGroupIdentityDoesNotDuplicateTarget = {
+    expr = builtins.attrNames serialized12.target;
+    expected = [ "main" ];
+  };
+
+  # Function values buried inside lists (e.g., inside `passthru`) must not
+  # leak into the fingerprint. Without recursive function-stripping, distinct
+  # closures break structural equality even when every other field matches.
+  testSerializeFingerprintIgnoresFunctionsInLists = {
+    expr = serialized13.group.default.targets;
+    expected = [ "main" ];
   };
 }
