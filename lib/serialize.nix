@@ -211,22 +211,24 @@ let
       firstLevelTargets = entryModule.targets or { };
       targetNames = builtins.attrNames firstLevelTargets;
 
-      # Map of content-hash → first-level key. Used to dedup second-level
+      # key → content hash. Computed once per serialize call; used by
+      # resolveId's name-match fast path without recomputing hashes on
+      # every reference.
+      firstLevelNameToHash = builtins.mapAttrs (_: contentHash) firstLevelTargets;
+
+      # content hash → first-level key. Used to dedup second-level
       # targets that content-hash-match a first-level target. A target's
       # content hash is a deterministic function of its wire-format
       # fields, so a second-level value that differs from its first-level
-      # counterpart only on identity metadata (namespace in particular —
+      # counterpart only on identity metadata (namespace in particular:
       # the PR #30 pre-stamp vs post-stamp case) collapses cleanly here.
       #
       # Two first-level targets can coincidentally share a content hash
       # (e.g., identical build config under different names). listToAttrs
-      # keeps one entry per key — arbitrary which, but resolveId checks
-      # name-match first so each first-level target still resolves to
-      # its own key regardless of which entry wins this map.
-      # key → content hash. Computed once per serialize call; used by
-      # resolveId's name-match check without recomputing hashes.
-      firstLevelNameToHash = builtins.mapAttrs (_: contentHash) firstLevelTargets;
-
+      # is last-wins; since targetNames comes from attrNames it is
+      # alphabetically sorted, so the later key wins deterministically.
+      # resolveId's name-match check runs first regardless, so each
+      # first-level target still resolves to its own key.
       firstLevelHashIndex = builtins.listToAttrs (
         builtins.map (key: {
           name = firstLevelNameToHash.${key};
