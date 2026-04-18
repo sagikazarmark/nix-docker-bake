@@ -915,7 +915,7 @@ in
   # counterpart in entry module's first-level set → emits as hash-
   # suffixed wire id with leading underscore.
   testForeignSecondLevelPrefixedId = {
-    expr = builtins.match "target:_a_base_[0-9a-f]+" foreignParsed.target.main.contexts.root != null;
+    expr = builtins.match "target:_a_base_[0-9a-f]{8}" foreignParsed.target.main.contexts.root != null;
     expected = true;
   };
 
@@ -936,7 +936,7 @@ in
   };
 
   testScopeForkPatchedArgsMainContextIsSecondLevel = {
-    expr = builtins.match "target:_a_base_[0-9a-f]+" forkParsed.target.main.contexts.root != null;
+    expr = builtins.match "target:_a_base_[0-9a-f]{8}" forkParsed.target.main.contexts.root != null;
     expected = true;
   };
 

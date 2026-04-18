@@ -109,7 +109,7 @@ in
   # `_<namespace>_<name>_<hash>` with a leading underscore to hide from
   # `docker buildx bake --list`.
   testIntMiddleMainCrossModuleRef = {
-    expr = builtins.match "target:_base_main_[0-9a-f]+" middleSer.target.main.contexts.root != null;
+    expr = builtins.match "target:_base_main_[0-9a-f]{8}" middleSer.target.main.contexts.root != null;
     expected = true;
   };
 
@@ -160,7 +160,7 @@ in
   # ---------- Scenario 3: top module — deep cross-module chain ----------
 
   testIntTopPrimaryRefMiddle = {
-    expr = builtins.match "target:_middle_main_[0-9a-f]+" topSer.target.primary.contexts.root != null;
+    expr = builtins.match "target:_middle_main_[0-9a-f]{8}" topSer.target.primary.contexts.root != null;
     expected = true;
   };
 
@@ -181,7 +181,7 @@ in
     in
     {
       expr =
-        builtins.match "target:_base_main_[0-9a-f]+" topSer.target.${middleMainKey}.contexts.root != null;
+        builtins.match "target:_base_main_[0-9a-f]{8}" topSer.target.${middleMainKey}.contexts.root != null;
       expected = true;
     };
 
@@ -194,7 +194,7 @@ in
 
   testIntTopSecondaryRefMiddleReady = {
     expr =
-      builtins.match "target:_middle_ready_[0-9a-f]+" topSer.target.secondary.contexts.root != null;
+      builtins.match "target:_middle_ready_[0-9a-f]{8}" topSer.target.secondary.contexts.root != null;
     expected = true;
   };
 
@@ -224,7 +224,7 @@ in
       builtins.map (
         id:
         let
-          m = builtins.match "(_base_main|_middle_main)_[0-9a-f]+" id;
+          m = builtins.match "(_base_main|_middle_main)_[0-9a-f]{8}" id;
         in
         if m == null then id else builtins.head m
       ) aggregatorSer.group.default.targets
@@ -289,7 +289,7 @@ in
     };
 
   testIntCwsCrossModuleRef = {
-    expr = builtins.match "target:_a_t_[0-9a-f]+" cwsBParsed.target.t.contexts.root != null;
+    expr = builtins.match "target:_a_t_[0-9a-f]{8}" cwsBParsed.target.t.contexts.root != null;
     expected = true;
   };
 
