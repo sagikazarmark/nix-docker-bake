@@ -117,6 +117,22 @@ Expose `bakeFile` as a flake output, build it, and hand the path to `docker buil
 docker buildx bake -f "$(nix build --print-out-paths .#bakeFile)" main
 ```
 
+Or wire an `apps` output with `mkBakeApp` and collapse it into a single command:
+
+```nix
+# inside flake.nix outputs, next to packages.<system>.bakeFile
+# pkgs is a let-bound `nixpkgs.legacyPackages.${system}`;
+# see templates/default/flake.nix for the full wiring.
+apps.${system}.bake = bake.lib.mkBakeApp {
+  inherit pkgs;
+  module = scope.modules.hello;
+};
+```
+
+```bash
+nix run .#bake -- main
+```
+
 ## Writing modules
 
 A module is a `.nix` file that returns a function.

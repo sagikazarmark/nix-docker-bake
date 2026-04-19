@@ -148,3 +148,33 @@ scope (2 modules):
 ```
 
 
+
+# Convenience app wrappers. {#sec-functions-library-apps}
+
+
+## `lib.apps.mkBakeApp` {#function-library-lib.apps.mkBakeApp}
+
+Build a flake `apps.<name>` entry that regenerates the bake file on
+every invocation and execs `docker buildx bake -f <file> "$@"`.
+
+`pkgs` is required because we use `pkgs.writeShellScript` to produce
+an executable script. `docker` is NOT pinned in the Nix store: the
+wrapper calls whatever `docker` is on the user's PATH so their
+daemon, buildx plugins, and credentials work unchanged.
+
+### Type
+
+```
+mkBakeApp :: { pkgs :: AttrSet, module :: Module, name :: String ? } -> App
+```
+
+### Example
+
+```nix
+apps.${system}.bake = bake.lib.mkBakeApp {
+  inherit pkgs;
+  module = scope.modules.app;
+};
+```
+
+

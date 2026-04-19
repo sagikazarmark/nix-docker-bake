@@ -12,6 +12,7 @@ let
     (import ./bake-file.nix { inherit bake; })
     (import ./describe.nix { inherit bake; })
     (import ./integration.nix { inherit bake; })
+    (import ./apps.nix { inherit bake; })
   ];
 in
 builtins.foldl' (acc: s: acc // s) { } subjects
