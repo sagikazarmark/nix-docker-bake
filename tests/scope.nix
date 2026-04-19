@@ -627,6 +627,45 @@ in
     expected = false;
   };
 
+  # moduleArgs keys must not shadow reserved scope keys: the `//`
+  # composition order in scopeFn otherwise silently clobbers the arg
+  # with the scope's own value. Same reserved set as module names.
+  testMkScopeRejectsModuleArgsReservedLib = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.lib = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedExtend = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.extend = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedOverride = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.override = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedModules = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.modules = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
   # ---------- lib.extend ----------
 
   testLibExtendForksScope = {

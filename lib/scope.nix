@@ -47,11 +47,17 @@ let
         "override"
         "modules"
       ];
-      conflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
+      moduleConflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
+      moduleArgsConflicts = builtins.filter (n: builtins.elem n reservedNames) (
+        builtins.attrNames moduleArgs
+      );
     in
     assert
-      conflicts == [ ]
-      || throw "mkScope: module names conflict with reserved scope keys: ${builtins.concatStringsSep ", " conflicts}";
+      moduleConflicts == [ ]
+      || throw "mkScope: module names conflict with reserved scope keys: ${builtins.concatStringsSep ", " moduleConflicts}";
+    assert
+      moduleArgsConflicts == [ ]
+      || throw "mkScope: moduleArgs keys conflict with reserved scope keys: ${builtins.concatStringsSep ", " moduleArgsConflicts}";
     let
       scopeFn =
         self:
