@@ -20,7 +20,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
 
       scope = bake.lib.mkScope {
-        config = { };
+        moduleArgs = { };
         modules = {
           app = ./bake.nix;
         };

@@ -6,40 +6,58 @@
 }:
 let
   /**
-    Build a fixed-point scope from consumer-supplied `config` and a set of
+    Build a fixed-point scope from consumer-supplied `moduleArgs` and a set of
     `modules` (attrset of `name -> path`). Module functions are resolved via
     auto-injection (`builtins.functionArgs`) against the resolved scope.
 
-    The returned scope exposes `lib` (library primitives), `extend` / `override`
-    (fork helpers), `modules.<name>` (resolved modules), and any attributes
-    propagated from `config`.
+    An optional `lib` overlay (a `final: prev: attrset` function, matching the
+    nixpkgs overlay shape) extends the per-scope `lib` surface so project-local
+    helpers can live alongside `mkTarget` / `mkContext` / `mkContextWith`.
+    Compose multiple overlays with `nixpkgs.lib.composeExtensions`.
+
+    The returned scope exposes `lib` (library primitives, optionally extended),
+    `extend` / `override` (fork helpers), `modules.<name>` (resolved modules),
+    and any attributes propagated from `moduleArgs`.
 
     # Type
 
     ```
-    mkScope :: { config :: AttrSet, modules :: AttrSet } -> Scope
+    mkScope :: {
+      moduleArgs :: AttrSet,
+      modules    :: AttrSet,
+      lib        :: (Lib -> Lib -> AttrSet) ? ,
+    } -> Scope
     ```
   */
-  # Build a fixed-point scope function from consumer-supplied config and module paths.
-  # config: opaque attrset; values flow to modules via callModule auto-injection.
+  # Build a fixed-point scope function from consumer-supplied moduleArgs and module paths.
+  # moduleArgs: opaque attrset; values flow to modules via callModule auto-injection.
   # modules: attrset of `name -> path-to-bake.nix`.
+  # lib: optional overlay (final: prev: attrset) extending the per-scope lib.
   mkScope =
     {
-      config,
+      moduleArgs,
       modules,
+      lib ? _final: _prev: { },
     }:
     let
+      libOverlay = lib;
       reservedNames = [
         "lib"
         "extend"
         "override"
         "modules"
       ];
-      conflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
+      moduleConflicts = builtins.filter (n: builtins.elem n reservedNames) (builtins.attrNames modules);
+      moduleArgsConflicts = builtins.filter (n: builtins.elem n reservedNames) (
+        builtins.attrNames moduleArgs
+      );
     in
     assert
-      conflicts == [ ]
-      || throw "mkScope: module names conflict with reserved scope keys: ${builtins.concatStringsSep ", " conflicts}";
+      moduleConflicts == [ ]
+      || throw "mkScope: module names conflict with reserved scope keys: ${builtins.concatStringsSep ", " moduleConflicts}";
+    assert
+      moduleArgsConflicts == [ ]
+      || throw "mkScope: moduleArgs keys conflict with reserved scope keys: ${builtins.concatStringsSep ", " moduleArgsConflicts}";
     let
       scopeFn =
         self:
@@ -84,7 +102,11 @@ let
             assert allValid;
             targets;
 
-          libFunctions = {
+          # Base lib surface as a self-accepting function so the user's
+          # overlay can extend it via nixLib.extends. The `libSelf` argument
+          # is unused at the base; the overlay receives the fully-extended
+          # lib as `final` so cross-helper self-reference works.
+          baseLibFn = _libSelf: {
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
 
@@ -109,8 +131,10 @@ let
 
             inherit extend override;
           };
+
+          libFunctions = nixLib.fix (nixLib.extends libOverlay baseLibFn);
         in
-        config
+        moduleArgs
         // {
           # Library functions namespaced under lib, mirroring nixpkgs conventions.
           lib = libFunctions;

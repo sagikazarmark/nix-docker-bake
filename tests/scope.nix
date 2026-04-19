@@ -11,7 +11,7 @@ let
   '';
 
   scope1 = mkScope {
-    config = {
+    moduleArgs = {
       myConfigValue = "hello";
     };
     modules.test = scopeTestModuleFile;
@@ -19,7 +19,7 @@ let
 
   # String-path module (not just Nix paths)
   stringPathScope = mkScope {
-    config = {
+    moduleArgs = {
       myConfigValue = "via-string";
     };
     modules.test = toString scopeTestModuleFile;
@@ -43,7 +43,7 @@ let
     }
   '';
   scope2 = mkScope {
-    config = {
+    moduleArgs = {
       val = "default";
     };
     modules = {
@@ -55,7 +55,7 @@ let
   # lib.extend witness module: consumes `val` from scope so overlay propagation
   # into a forked module can be observed on the resolved module's args.
   cwsMkCtxScope = mkScope {
-    config.val = "default";
+    moduleArgs.val = "default";
     modules.forkable = ./fixtures/forkable-mkctx-mod.nix;
   };
   cwsMkCtxForked = (cwsMkCtxScope.lib.extend (final: prev: { val = "overridden"; })).modules.forkable;
@@ -66,7 +66,7 @@ let
   # lib.extend
   libExtendedScope = scope1.lib.extend (final: prev: { myConfigValue = "lib-extended"; });
 
-  # callModule shallow isolation: overriding a config value when resolving one
+  # callModule shallow isolation: overriding a moduleArgs value when resolving one
   # module must not affect sibling modules that read the same value.
   sharedA = builtins.toFile "shallow-a.nix" ''
     { lib, shared, ... }:
@@ -83,7 +83,7 @@ let
     }
   '';
   shallowScope = mkScope {
-    config.shared = "base";
+    moduleArgs.shared = "base";
     modules = {
       a = sharedA;
       b = sharedB;
@@ -111,7 +111,7 @@ let
     }
   '';
   libOverrideScope = mkScope {
-    config.val = "default";
+    moduleArgs.val = "default";
     modules = {
       a = libOverrideAFile;
       b = libOverrideBFile;
@@ -119,7 +119,7 @@ let
   };
 
   # Per-module .override: a module with a defaulted arg that is NOT in scope
-  # config. The override should swap the arg without touching the scope.
+  # moduleArgs. The override should swap the arg without touching the scope.
   perModuleArgFile = builtins.toFile "permod-arg.nix" ''
     { lib, version ? "1.0.0", ... }:
     {
@@ -128,14 +128,14 @@ let
     }
   '';
   perModuleScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules.perm = perModuleArgFile;
   };
 
   # Per-instance override of a scope-wide arg: two modules both read `shared`
-  # from scope config. Overriding it on one must not affect the other.
+  # from scope moduleArgs. Overriding it on one must not affect the other.
   instOverrideScope = mkScope {
-    config.shared = "base";
+    moduleArgs.shared = "base";
     modules = {
       a = sharedA;
       b = sharedB;
@@ -217,7 +217,7 @@ let
   '';
 
   dedupScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = dedupAFile;
       b = dedupBFile;
@@ -254,7 +254,7 @@ let
     }
   '';
   triScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       c = triCAFile;
       b = triBFile;
@@ -284,7 +284,7 @@ let
     }
   '';
   foreignScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = foreignAFile;
       b = foreignBFile;
@@ -330,7 +330,7 @@ let
     }
   '';
   forkScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = forkAFile;
       b = forkBFile;
@@ -364,7 +364,7 @@ let
     }
   '';
   uniformScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = forkAFile;
       b = uniformBFile;
@@ -389,18 +389,144 @@ let
     }
   '';
   groupDedupScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = dedupAFile;
       b = groupDedupBFile;
     };
   };
   groupDedupParsed = builtins.fromJSON (builtins.readFile (mkBakeFile groupDedupScope.modules.b));
+
+  # ---------- lib overlay fixtures ----------
+
+  # Overlay adds a helper that delegates to prev.mkTarget.
+  basicOverlayModFile = builtins.toFile "basic-overlay-mod.nix" ''
+    { lib, val, ... }:
+    {
+      targets.main = lib.mkHelperTarget { name = "main"; context = ./.; args.FROM_HELPER = val; };
+      groups = {};
+    }
+  '';
+  basicOverlayScope = mkScope {
+    moduleArgs = {
+      val = "hello";
+    };
+    lib = final: prev: {
+      mkHelperTarget = args: prev.mkTarget args;
+    };
+    modules.test = basicOverlayModFile;
+  };
+
+  # Overlay wraps an existing base function via prev: decorates every
+  # mkTarget call with an extra arg.
+  wrapOverlayModFile = builtins.toFile "wrap-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkTarget { name = "main"; context = ./.; args.A = "a"; };
+      groups = {};
+    }
+  '';
+  wrapOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = final: prev: {
+      mkTarget =
+        args:
+        prev.mkTarget (
+          args
+          // {
+            args = (args.args or { }) // {
+              WRAPPED = "yes";
+            };
+          }
+        );
+    };
+    modules.test = wrapOverlayModFile;
+  };
+
+  # Overlay self-reference via final: one overlay-defined helper calls
+  # another overlay-defined helper through `final`.
+  selfRefOverlayModFile = builtins.toFile "selfref-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkWrapped { name = "main"; context = ./.; args.BASE = "b"; };
+      groups = {};
+    }
+  '';
+  selfRefOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = final: prev: {
+      mkWrapped = args: final.mkInner args;
+      mkInner =
+        args:
+        prev.mkTarget (
+          args
+          // {
+            args = (args.args or { }) // {
+              INNER = "yes";
+            };
+          }
+        );
+    };
+    modules.test = selfRefOverlayModFile;
+  };
+
+  # Overlay survives scope.extend: a forked scope retains overlay-defined
+  # helpers and sees the forked moduleArgs values.
+  extendedOverlayScope = basicOverlayScope.extend (_final: _prev: { val = "extended"; });
+
+  # Composition: two overlay functions stitched together manually (the
+  # shape nixpkgs.lib.composeExtensions produces). Confirms that a later
+  # overlay can reference an earlier overlay's additions via `prev`.
+  composedOverlay =
+    let
+      overlayA = _final: prev: {
+        mkA =
+          args:
+          prev.mkTarget (
+            args
+            // {
+              args = (args.args or { }) // {
+                FROM_A = "a";
+              };
+            }
+          );
+      };
+      overlayB = _final: prev: {
+        mkB =
+          args:
+          prev.mkA (
+            args
+            // {
+              args = (args.args or { }) // {
+                FROM_B = "b";
+              };
+            }
+          );
+      };
+    in
+    final: prev:
+    let
+      a = overlayA final prev;
+      prev' = prev // a;
+    in
+    a // overlayB final prev';
+  composedOverlayModFile = builtins.toFile "composed-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkB { name = "main"; context = ./.; };
+      groups = {};
+    }
+  '';
+  composedOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = composedOverlay;
+    modules.test = composedOverlayModFile;
+  };
 in
 {
   # ---------- mkScope ----------
 
-  testMkScopeInjectsConfig = {
+  testMkScopeInjectsModuleArgs = {
     expr = scope1.test.targets.main.args.VAL;
     expected = "hello";
   };
@@ -434,7 +560,7 @@ in
     expected = "overridden";
   };
 
-  # lib.extend on a scope with a module that reads a scope config key: the
+  # lib.extend on a scope with a module that reads a scope moduleArgs key: the
   # forked module's args reflect the overlay's value, confirming the overlay
   # propagates through callModule's auto-injection.
   testLibExtendPropagatesToForkedModuleArgs = {
@@ -468,7 +594,7 @@ in
   testMkScopeRejectsReservedNameLib = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.lib = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -477,7 +603,7 @@ in
   testMkScopeRejectsReservedNameExtend = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.extend = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -486,7 +612,7 @@ in
   testMkScopeRejectsReservedNameModules = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.modules = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -495,8 +621,47 @@ in
   testMkScopeRejectsReservedNameOverride = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.override = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  # moduleArgs keys must not shadow reserved scope keys: the `//`
+  # composition order in scopeFn otherwise silently clobbers the arg
+  # with the scope's own value. Same reserved set as module names.
+  testMkScopeRejectsModuleArgsReservedLib = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.lib = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedExtend = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.extend = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedOverride = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.override = "bogus";
+        modules.test = scopeTestModuleFile;
+      })).success;
+    expected = false;
+  };
+
+  testMkScopeRejectsModuleArgsReservedModules = {
+    expr =
+      (builtins.tryEval (mkScope {
+        moduleArgs.modules = "bogus";
+        modules.test = scopeTestModuleFile;
       })).success;
     expected = false;
   };
@@ -628,7 +793,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.nm = nameMismatchFile;
         }).nm.targets
       ).success;
@@ -641,7 +806,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.si = slashInheritFile;
         }).si.targets
       ).success;
@@ -653,7 +818,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.mn = missingNameFile;
         }).mn.targets
       ).success;
@@ -762,5 +927,64 @@ in
       "base"
       "main"
     ];
+  };
+
+  # ---------- lib overlay ----------
+
+  # Overlay-defined helper is available as lib.<name> in modules; routes
+  # through prev.mkTarget to produce a valid target.
+  testLibOverlayExposesHelperUnderLib = {
+    expr = basicOverlayScope.test.targets.main.args.FROM_HELPER;
+    expected = "hello";
+  };
+
+  # Overlay wraps prev.mkTarget: every constructed target carries the
+  # wrapper's added arg alongside its own.
+  testLibOverlayWrapsBaseFunctionViaPrev = {
+    expr = wrapOverlayScope.test.targets.main.args.WRAPPED;
+    expected = "yes";
+  };
+
+  testLibOverlayWrapPreservesCallerArgs = {
+    expr = wrapOverlayScope.test.targets.main.args.A;
+    expected = "a";
+  };
+
+  # Overlay helpers can reference each other via `final`.
+  testLibOverlaySelfReferenceViaFinal = {
+    expr = selfRefOverlayScope.test.targets.main.args.INNER;
+    expected = "yes";
+  };
+
+  testLibOverlaySelfReferencePreservesCallerArgs = {
+    expr = selfRefOverlayScope.test.targets.main.args.BASE;
+    expected = "b";
+  };
+
+  # scope.extend on an overlay-scope preserves the overlay: the forked
+  # scope still resolves lib.mkHelperTarget and picks up the forked val.
+  testLibOverlaySurvivesScopeExtend = {
+    expr = extendedOverlayScope.test.targets.main.args.FROM_HELPER;
+    expected = "extended";
+  };
+
+  # Manual composition of two overlay functions: later overlay sees
+  # earlier overlay's additions via prev. Matches the shape produced by
+  # nixpkgs.lib.composeExtensions.
+  testLibOverlayCompositionLaterSeesEarlierViaPrev = {
+    expr = composedOverlayScope.test.targets.main.args.FROM_A;
+    expected = "a";
+  };
+
+  testLibOverlayCompositionLaterAddsOwnFields = {
+    expr = composedOverlayScope.test.targets.main.args.FROM_B;
+    expected = "b";
+  };
+
+  # Omitting the `lib` overlay is backward-shaped: the base lib surface
+  # is unchanged. scope1 doesn't pass `lib`, and lib.mkTarget works.
+  testLibOverlayOmittedLeavesBaseUnchanged = {
+    expr = scope1.lib ? mkTarget && scope1.lib ? mkContext && scope1.lib ? mkContextWith;
+    expected = true;
   };
 }
