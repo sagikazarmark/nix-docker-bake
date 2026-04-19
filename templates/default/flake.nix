@@ -3,7 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    bake.url = "github:sagikazarmark/nix-docker-bake";
+    bake = {
+      url = "github:sagikazarmark/nix-docker-bake";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
