@@ -396,6 +396,132 @@ let
     };
   };
   groupDedupParsed = builtins.fromJSON (builtins.readFile (mkBakeFile groupDedupScope.modules.b));
+
+  # ---------- lib overlay fixtures ----------
+
+  # Overlay adds a helper that delegates to prev.mkTarget.
+  basicOverlayModFile = builtins.toFile "basic-overlay-mod.nix" ''
+    { lib, val, ... }:
+    {
+      targets.main = lib.mkHelperTarget { name = "main"; context = ./.; args.FROM_HELPER = val; };
+      groups = {};
+    }
+  '';
+  basicOverlayScope = mkScope {
+    moduleArgs = {
+      val = "hello";
+    };
+    lib = final: prev: {
+      mkHelperTarget = args: prev.mkTarget args;
+    };
+    modules.test = basicOverlayModFile;
+  };
+
+  # Overlay wraps an existing base function via prev: decorates every
+  # mkTarget call with an extra arg.
+  wrapOverlayModFile = builtins.toFile "wrap-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkTarget { name = "main"; context = ./.; args.A = "a"; };
+      groups = {};
+    }
+  '';
+  wrapOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = final: prev: {
+      mkTarget =
+        args:
+        prev.mkTarget (
+          args
+          // {
+            args = (args.args or { }) // {
+              WRAPPED = "yes";
+            };
+          }
+        );
+    };
+    modules.test = wrapOverlayModFile;
+  };
+
+  # Overlay self-reference via final: one overlay-defined helper calls
+  # another overlay-defined helper through `final`.
+  selfRefOverlayModFile = builtins.toFile "selfref-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkWrapped { name = "main"; context = ./.; args.BASE = "b"; };
+      groups = {};
+    }
+  '';
+  selfRefOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = final: prev: {
+      mkWrapped = args: final.mkInner args;
+      mkInner =
+        args:
+        prev.mkTarget (
+          args
+          // {
+            args = (args.args or { }) // {
+              INNER = "yes";
+            };
+          }
+        );
+    };
+    modules.test = selfRefOverlayModFile;
+  };
+
+  # Overlay survives scope.extend: a forked scope retains overlay-defined
+  # helpers and sees the forked moduleArgs values.
+  extendedOverlayScope = basicOverlayScope.extend (_final: _prev: { val = "extended"; });
+
+  # Composition: two overlay functions stitched together manually (the
+  # shape nixpkgs.lib.composeExtensions produces). Confirms that a later
+  # overlay can reference an earlier overlay's additions via `prev`.
+  composedOverlay =
+    let
+      overlayA = _final: prev: {
+        mkA =
+          args:
+          prev.mkTarget (
+            args
+            // {
+              args = (args.args or { }) // {
+                FROM_A = "a";
+              };
+            }
+          );
+      };
+      overlayB = _final: prev: {
+        mkB =
+          args:
+          prev.mkA (
+            args
+            // {
+              args = (args.args or { }) // {
+                FROM_B = "b";
+              };
+            }
+          );
+      };
+    in
+    final: prev:
+    let
+      a = overlayA final prev;
+      prev' = prev // a;
+    in
+    a // overlayB final prev';
+  composedOverlayModFile = builtins.toFile "composed-overlay-mod.nix" ''
+    { lib, ... }:
+    {
+      targets.main = lib.mkB { name = "main"; context = ./.; };
+      groups = {};
+    }
+  '';
+  composedOverlayScope = mkScope {
+    moduleArgs = { };
+    lib = composedOverlay;
+    modules.test = composedOverlayModFile;
+  };
 in
 {
   # ---------- mkScope ----------
@@ -762,5 +888,64 @@ in
       "base"
       "main"
     ];
+  };
+
+  # ---------- lib overlay ----------
+
+  # Overlay-defined helper is available as lib.<name> in modules; routes
+  # through prev.mkTarget to produce a valid target.
+  testLibOverlayExposesHelperUnderLib = {
+    expr = basicOverlayScope.test.targets.main.args.FROM_HELPER;
+    expected = "hello";
+  };
+
+  # Overlay wraps prev.mkTarget: every constructed target carries the
+  # wrapper's added arg alongside its own.
+  testLibOverlayWrapsBaseFunctionViaPrev = {
+    expr = wrapOverlayScope.test.targets.main.args.WRAPPED;
+    expected = "yes";
+  };
+
+  testLibOverlayWrapPreservesCallerArgs = {
+    expr = wrapOverlayScope.test.targets.main.args.A;
+    expected = "a";
+  };
+
+  # Overlay helpers can reference each other via `final`.
+  testLibOverlaySelfReferenceViaFinal = {
+    expr = selfRefOverlayScope.test.targets.main.args.INNER;
+    expected = "yes";
+  };
+
+  testLibOverlaySelfReferencePreservesCallerArgs = {
+    expr = selfRefOverlayScope.test.targets.main.args.BASE;
+    expected = "b";
+  };
+
+  # scope.extend on an overlay-scope preserves the overlay: the forked
+  # scope still resolves lib.mkHelperTarget and picks up the forked val.
+  testLibOverlaySurvivesScopeExtend = {
+    expr = extendedOverlayScope.test.targets.main.args.FROM_HELPER;
+    expected = "extended";
+  };
+
+  # Manual composition of two overlay functions: later overlay sees
+  # earlier overlay's additions via prev. Matches the shape produced by
+  # nixpkgs.lib.composeExtensions.
+  testLibOverlayCompositionLaterSeesEarlierViaPrev = {
+    expr = composedOverlayScope.test.targets.main.args.FROM_A;
+    expected = "a";
+  };
+
+  testLibOverlayCompositionLaterAddsOwnFields = {
+    expr = composedOverlayScope.test.targets.main.args.FROM_B;
+    expected = "b";
+  };
+
+  # Omitting the `lib` overlay is backward-shaped: the base lib surface
+  # is unchanged. scope1 doesn't pass `lib`, and lib.mkTarget works.
+  testLibOverlayOmittedLeavesBaseUnchanged = {
+    expr = scope1.lib ? mkTarget && scope1.lib ? mkContext && scope1.lib ? mkContextWith;
+    expected = true;
   };
 }

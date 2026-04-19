@@ -94,14 +94,23 @@ Build a fixed-point scope from consumer-supplied `moduleArgs` and a set of
 `modules` (attrset of `name -> path`). Module functions are resolved via
 auto-injection (`builtins.functionArgs`) against the resolved scope.
 
-The returned scope exposes `lib` (library primitives), `extend` / `override`
-(fork helpers), `modules.<name>` (resolved modules), and any attributes
-propagated from `moduleArgs`.
+An optional `lib` overlay (a `final: prev: attrset` function, matching the
+nixpkgs overlay shape) extends the per-scope `lib` surface so project-local
+helpers can live alongside `mkTarget` / `mkContext` / `mkContextWith`.
+Compose multiple overlays with `nixpkgs.lib.composeExtensions`.
+
+The returned scope exposes `lib` (library primitives, optionally extended),
+`extend` / `override` (fork helpers), `modules.<name>` (resolved modules),
+and any attributes propagated from `moduleArgs`.
 
 ### Type
 
 ```
-mkScope :: { moduleArgs :: AttrSet, modules :: AttrSet } -> Scope
+mkScope :: {
+  moduleArgs :: AttrSet,
+  modules    :: AttrSet,
+  lib        :: (Lib -> Lib -> AttrSet) ? ,
+} -> Scope
 ```
 
 ## `lib.scope.mkBakeFile` {#function-library-lib.scope.mkBakeFile}
