@@ -7,7 +7,7 @@ let
   serialize = import ./serialize.nix;
   scope = import ./scope.nix { inherit nixLib core serialize; };
   describe = import ./describe.nix;
-  apps = import ./apps.nix { inherit scope; };
+  apps = import ./apps.nix { inherit (scope) mkBakeFile; };
 in
 {
   # Target construction and module validation

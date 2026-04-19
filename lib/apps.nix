@@ -1,5 +1,5 @@
 # Convenience helpers for turning bake modules into flake outputs.
-{ scope }:
+{ mkBakeFile }:
 {
   /**
     Build a flake `apps.<name>` entry that regenerates the bake file on
@@ -33,7 +33,7 @@
       name ? "bake",
     }:
     let
-      file = scope.mkBakeFile module;
+      file = mkBakeFile module;
       program = pkgs.writeShellScript "bake-${name}" ''
         exec docker buildx bake -f ${file} "$@"
       '';
