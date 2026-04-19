@@ -1,5 +1,5 @@
+# Aggregate all test subjects into one attrset suitable for nix-unit.
 {
-  lib,
   bake ? import ../lib { },
 }:
 let
@@ -13,12 +13,5 @@ let
     (import ./describe.nix { inherit bake; })
     (import ./integration.nix { inherit bake; })
   ];
-
-  allTests = builtins.foldl' (acc: s: acc // s) { } subjects;
-
-  failures = lib.runTests allTests;
 in
-if failures == [ ] then
-  "all tests passed (${toString (builtins.length (builtins.attrNames allTests))} assertions)"
-else
-  throw "test failures:\n${builtins.toJSON failures}"
+builtins.foldl' (acc: s: acc // s) { } subjects

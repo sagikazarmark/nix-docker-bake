@@ -3,44 +3,39 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
+
+    systems.url = "github:nix-systems/default";
+
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    nix-unit = {
+      url = "github:nix-community/nix-unit";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
-    let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
+    inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = import inputs.systems;
+
+      imports = [
+        ./nix/lib.nix
+        ./nix/overlay.nix
+        ./nix/treefmt.nix
+        ./nix/devshell.nix
+        ./nix/checks.nix
+        ./nix/templates.nix
       ];
-
-      forAllSystems =
-        f:
-        nixpkgs.lib.genAttrs systems (
-          system:
-          f {
-            inherit system;
-            pkgs = nixpkgs.legacyPackages.${system};
-          }
-        );
-    in
-    {
-      lib = import ./lib { };
-
-      checks = forAllSystems (
-        { pkgs, ... }:
-        {
-          tests = pkgs.writeText "bake-tests" (
-            import ./tests {
-              inherit (pkgs) lib;
-
-              bake = self.lib;
-            }
-          );
-        }
-      );
-
-      formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
     };
 }
