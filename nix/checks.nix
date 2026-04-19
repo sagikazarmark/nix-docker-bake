@@ -1,42 +1,37 @@
 # flake-parts module: nix-unit tests and API doc drift check.
-{ ... }:
-let
-  prepRepo = ''
-    cp -r $src/. ./repo
-    chmod -R u+w ./repo
-  '';
-in
+{ inputs, ... }:
 {
+  imports = [ inputs.nix-unit.modules.flake.default ];
+
   perSystem =
-    { pkgs, inputs', ... }:
-    let
-      src = pkgs.lib.cleanSource ../.;
-    in
+    { pkgs, ... }:
     {
-      checks.tests =
-        pkgs.runCommand "bake-tests"
-          {
-            inherit src;
-            nativeBuildInputs = [ inputs'.nix-unit.packages.default ];
-          }
-          ''
-            export HOME=$(mktemp -d)
-            ${prepRepo}
-            nix-unit --eval-store "$HOME" ./repo/tests/default.nix
-            touch $out
-          '';
+      nix-unit = {
+        inputs = {
+          inherit (inputs)
+            nixpkgs
+            flake-parts
+            systems
+            treefmt-nix
+            nix-unit
+            ;
+        };
+
+        tests = import ../tests { bake = import ../lib { }; };
+      };
 
       checks.api-docs =
         pkgs.runCommand "bake-api-docs"
           {
-            inherit src;
+            src = pkgs.lib.cleanSource ../.;
             nativeBuildInputs = [
               pkgs.nixdoc
               pkgs.diffutils
             ];
           }
           ''
-            ${prepRepo}
+            cp -r $src/. ./repo
+            chmod -R u+w ./repo
             cd ./repo
             bash scripts/gen-api-docs.sh ./api-generated.md
             if ! diff -u API.md ./api-generated.md; then
