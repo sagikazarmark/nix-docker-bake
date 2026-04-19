@@ -229,6 +229,54 @@ in
 
 The library's attrset-key-matches-name check catches this at module-load time with a clear error.
 
+## Project-local helpers (`lib` overlay)
+
+Downstream projects often want thin wrappers over `mkTarget` that pre-apply project defaults (platforms, registry prefix, common labels).
+`mkScope` accepts a `lib` field taking a `final: prev: attrset` overlay function that extends the per-scope `lib` surface, so those wrappers live alongside `mkTarget` / `mkContext` / `mkContextWith` instead of leaking in as bare module arguments.
+
+```nix
+# flake.nix
+scope = bake.lib.mkScope {
+  moduleArgs = {
+    repository = "ghcr.io/acme";
+  };
+
+  lib = final: prev: {
+    mkRegistryTarget = args: prev.mkTarget (args // {
+      platforms = [ "linux/amd64" "linux/arm64" ];
+      tags = (args.tags or [ ]) ++ [ "ghcr.io/acme/${args.name}:latest" ];
+    });
+  };
+
+  modules = { app = ./app/bake.nix; };
+};
+```
+
+Modules then use the project helper through the same namespace as the base primitives:
+
+```nix
+# app/bake.nix
+{ lib, ... }:
+{
+  targets.main = lib.mkRegistryTarget {
+    name    = "main";
+    context = lib.mkContext ./.;
+  };
+}
+```
+
+`prev` is the lib surface before the overlay (use it to call base primitives or wrap them); `final` is the fully-extended surface (use it when one helper needs to call another defined in the same overlay).
+
+To compose multiple overlays, use `nixpkgs.lib.composeExtensions`:
+
+```nix
+lib = nixpkgs.lib.composeExtensions
+  (final: prev: { mkRegistryTarget = ...; })
+  (final: prev: { mkPlaygroundTarget = ...; });
+```
+
+Omitting the `lib` field leaves the base lib unchanged.
+
 ## Overrides
 
 The scope exposes several override mechanisms.
