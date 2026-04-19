@@ -105,8 +105,8 @@ See [Writing modules](#writing-modules) for the full shape and a realistic examp
 ```nix
 # inside flake.nix outputs
 scope = bake.lib.mkScope {
-  config  = { };
-  modules = { hello = ./hello.nix; };
+  moduleArgs = { };
+  modules    = { hello = ./hello.nix; };
 };
 bakeFile = bake.lib.mkBakeFile scope.modules.hello;
 ```
@@ -137,7 +137,7 @@ nix run .#bake -- main
 
 A module is a `.nix` file that returns a function.
 The function's arguments are injected from the scope (like `callPackage`):
-anything in `config` is available as a named arg, and so are sibling modules (by their registry key).
+anything in `moduleArgs` is available as a named arg, and so are sibling modules (by their registry key).
 The library's helpers come in under `lib`.
 
 A realistic example with config values and a sibling dependency:
@@ -145,7 +145,7 @@ A realistic example with config values and a sibling dependency:
 ```nix
 # app/bake.nix
 # `base` is a sibling module (registered under the key "base" in the scope);
-# `appVersion` is a config value from mkScope's `config` attrset.
+# `appVersion` is a value from mkScope's `moduleArgs` attrset.
 { lib, appVersion, base, ... }:
 let
   main = lib.mkTarget {
@@ -238,7 +238,7 @@ Choose based on how far you want the change to propagate:
 |---|---|
 | Swap a single arg on a module already in the scope | `scope.<name>.override { arg = ...; }` |
 | Override a dep in one module, leave siblings alone | `lib.callModule path { dep = ...; }` |
-| Replace a config value everywhere in the scope | `(lib.override { key = ...; }).modules.<name>` |
+| Replace a scope value everywhere | `(lib.override { key = ...; }).modules.<name>` |
 | Same, with access to prior values (overlay form) | `(lib.extend (final: prev: { key = ...; })).modules.<name>` |
 | Override a value in some transitive deps but not others | `lib.callModule path { ...; dep = lib.callModule ../dep.nix { ... }; }` (selective) |
 
@@ -268,7 +268,7 @@ Every transitive dependency re-resolves with the overlay applied.
 customApp = (lib.extend (final: prev: { appVersion = "v2.0.0"; })).modules.app;
 ```
 
-For the common case of replacing config values, use `lib.override` as sugar:
+For the common case of replacing scope values, use `lib.override` as sugar:
 
 ```nix
 customApp = (lib.override { appVersion = "v2.0.0"; }).modules.app;

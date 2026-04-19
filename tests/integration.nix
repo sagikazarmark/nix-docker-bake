@@ -9,7 +9,7 @@ let
   # ---------- scope setup ----------
 
   scope = mkScope {
-    config = {
+    moduleArgs = {
       defaultRoot = "docker-image://rootfs:ubuntu";
       platforms = [ "linux/amd64" ];
       tag = name: "registry.example/${name}:\${CHANNEL}";
@@ -52,7 +52,7 @@ let
     }
   '';
   cwsScope = mkScope {
-    config = {
+    moduleArgs = {
       val = "default";
     };
     modules = {

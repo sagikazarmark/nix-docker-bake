@@ -90,18 +90,18 @@ checkModule :: Path -> Module -> Module
 
 ## `lib.scope.mkScope` {#function-library-lib.scope.mkScope}
 
-Build a fixed-point scope from consumer-supplied `config` and a set of
+Build a fixed-point scope from consumer-supplied `moduleArgs` and a set of
 `modules` (attrset of `name -> path`). Module functions are resolved via
 auto-injection (`builtins.functionArgs`) against the resolved scope.
 
 The returned scope exposes `lib` (library primitives), `extend` / `override`
 (fork helpers), `modules.<name>` (resolved modules), and any attributes
-propagated from `config`.
+propagated from `moduleArgs`.
 
 ### Type
 
 ```
-mkScope :: { config :: AttrSet, modules :: AttrSet } -> Scope
+mkScope :: { moduleArgs :: AttrSet, modules :: AttrSet } -> Scope
 ```
 
 ## `lib.scope.mkBakeFile` {#function-library-lib.scope.mkBakeFile}

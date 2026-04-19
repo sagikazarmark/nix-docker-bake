@@ -11,7 +11,7 @@ let
   '';
 
   scope1 = mkScope {
-    config = {
+    moduleArgs = {
       myConfigValue = "hello";
     };
     modules.test = scopeTestModuleFile;
@@ -19,7 +19,7 @@ let
 
   # String-path module (not just Nix paths)
   stringPathScope = mkScope {
-    config = {
+    moduleArgs = {
       myConfigValue = "via-string";
     };
     modules.test = toString scopeTestModuleFile;
@@ -43,7 +43,7 @@ let
     }
   '';
   scope2 = mkScope {
-    config = {
+    moduleArgs = {
       val = "default";
     };
     modules = {
@@ -55,7 +55,7 @@ let
   # lib.extend witness module: consumes `val` from scope so overlay propagation
   # into a forked module can be observed on the resolved module's args.
   cwsMkCtxScope = mkScope {
-    config.val = "default";
+    moduleArgs.val = "default";
     modules.forkable = ./fixtures/forkable-mkctx-mod.nix;
   };
   cwsMkCtxForked = (cwsMkCtxScope.lib.extend (final: prev: { val = "overridden"; })).modules.forkable;
@@ -66,7 +66,7 @@ let
   # lib.extend
   libExtendedScope = scope1.lib.extend (final: prev: { myConfigValue = "lib-extended"; });
 
-  # callModule shallow isolation: overriding a config value when resolving one
+  # callModule shallow isolation: overriding a moduleArgs value when resolving one
   # module must not affect sibling modules that read the same value.
   sharedA = builtins.toFile "shallow-a.nix" ''
     { lib, shared, ... }:
@@ -83,7 +83,7 @@ let
     }
   '';
   shallowScope = mkScope {
-    config.shared = "base";
+    moduleArgs.shared = "base";
     modules = {
       a = sharedA;
       b = sharedB;
@@ -111,7 +111,7 @@ let
     }
   '';
   libOverrideScope = mkScope {
-    config.val = "default";
+    moduleArgs.val = "default";
     modules = {
       a = libOverrideAFile;
       b = libOverrideBFile;
@@ -119,7 +119,7 @@ let
   };
 
   # Per-module .override: a module with a defaulted arg that is NOT in scope
-  # config. The override should swap the arg without touching the scope.
+  # moduleArgs. The override should swap the arg without touching the scope.
   perModuleArgFile = builtins.toFile "permod-arg.nix" ''
     { lib, version ? "1.0.0", ... }:
     {
@@ -128,14 +128,14 @@ let
     }
   '';
   perModuleScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules.perm = perModuleArgFile;
   };
 
   # Per-instance override of a scope-wide arg: two modules both read `shared`
-  # from scope config. Overriding it on one must not affect the other.
+  # from scope moduleArgs. Overriding it on one must not affect the other.
   instOverrideScope = mkScope {
-    config.shared = "base";
+    moduleArgs.shared = "base";
     modules = {
       a = sharedA;
       b = sharedB;
@@ -217,7 +217,7 @@ let
   '';
 
   dedupScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = dedupAFile;
       b = dedupBFile;
@@ -254,7 +254,7 @@ let
     }
   '';
   triScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       c = triCAFile;
       b = triBFile;
@@ -284,7 +284,7 @@ let
     }
   '';
   foreignScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = foreignAFile;
       b = foreignBFile;
@@ -330,7 +330,7 @@ let
     }
   '';
   forkScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = forkAFile;
       b = forkBFile;
@@ -364,7 +364,7 @@ let
     }
   '';
   uniformScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = forkAFile;
       b = uniformBFile;
@@ -389,7 +389,7 @@ let
     }
   '';
   groupDedupScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules = {
       a = dedupAFile;
       b = groupDedupBFile;
@@ -400,7 +400,7 @@ in
 {
   # ---------- mkScope ----------
 
-  testMkScopeInjectsConfig = {
+  testMkScopeInjectsModuleArgs = {
     expr = scope1.test.targets.main.args.VAL;
     expected = "hello";
   };
@@ -434,7 +434,7 @@ in
     expected = "overridden";
   };
 
-  # lib.extend on a scope with a module that reads a scope config key: the
+  # lib.extend on a scope with a module that reads a scope moduleArgs key: the
   # forked module's args reflect the overlay's value, confirming the overlay
   # propagates through callModule's auto-injection.
   testLibExtendPropagatesToForkedModuleArgs = {
@@ -468,7 +468,7 @@ in
   testMkScopeRejectsReservedNameLib = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.lib = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -477,7 +477,7 @@ in
   testMkScopeRejectsReservedNameExtend = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.extend = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -486,7 +486,7 @@ in
   testMkScopeRejectsReservedNameModules = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.modules = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -495,7 +495,7 @@ in
   testMkScopeRejectsReservedNameOverride = {
     expr =
       (builtins.tryEval (mkScope {
-        config = { };
+        moduleArgs = { };
         modules.override = scopeTestModuleFile;
       })).success;
     expected = false;
@@ -628,7 +628,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.nm = nameMismatchFile;
         }).nm.targets
       ).success;
@@ -641,7 +641,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.si = slashInheritFile;
         }).si.targets
       ).success;
@@ -653,7 +653,7 @@ in
     expr =
       (builtins.tryEval
         (mkScope {
-          config = { };
+          moduleArgs = { };
           modules.mn = missingNameFile;
         }).mn.targets
       ).success;

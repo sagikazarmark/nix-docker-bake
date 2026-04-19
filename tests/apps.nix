@@ -22,7 +22,7 @@ let
   '';
 
   scope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules.demo = moduleFile;
   };
 

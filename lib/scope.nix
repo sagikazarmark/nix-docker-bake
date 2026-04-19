@@ -6,26 +6,26 @@
 }:
 let
   /**
-    Build a fixed-point scope from consumer-supplied `config` and a set of
+    Build a fixed-point scope from consumer-supplied `moduleArgs` and a set of
     `modules` (attrset of `name -> path`). Module functions are resolved via
     auto-injection (`builtins.functionArgs`) against the resolved scope.
 
     The returned scope exposes `lib` (library primitives), `extend` / `override`
     (fork helpers), `modules.<name>` (resolved modules), and any attributes
-    propagated from `config`.
+    propagated from `moduleArgs`.
 
     # Type
 
     ```
-    mkScope :: { config :: AttrSet, modules :: AttrSet } -> Scope
+    mkScope :: { moduleArgs :: AttrSet, modules :: AttrSet } -> Scope
     ```
   */
-  # Build a fixed-point scope function from consumer-supplied config and module paths.
-  # config: opaque attrset; values flow to modules via callModule auto-injection.
+  # Build a fixed-point scope function from consumer-supplied moduleArgs and module paths.
+  # moduleArgs: opaque attrset; values flow to modules via callModule auto-injection.
   # modules: attrset of `name -> path-to-bake.nix`.
   mkScope =
     {
-      config,
+      moduleArgs,
       modules,
     }:
     let
@@ -110,7 +110,7 @@ let
             inherit extend override;
           };
         in
-        config
+        moduleArgs
         // {
           # Library functions namespaced under lib, mirroring nixpkgs conventions.
           lib = libFunctions;

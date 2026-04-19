@@ -11,7 +11,7 @@ let
   '';
 
   scope = mkScope {
-    config = {
+    moduleArgs = {
       myConfigValue = "hello";
     };
     modules.test = moduleFile;
@@ -51,7 +51,7 @@ let
   '';
 
   groupScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules.demo = groupModuleFile;
   };
 
@@ -85,7 +85,7 @@ let
   '';
 
   ctxRefScope = mkScope {
-    config = { };
+    moduleArgs = { };
     modules.ctxref = ctxRefModuleFile;
   };
 
