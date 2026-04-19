@@ -108,6 +108,12 @@
                   nixdoc --category "describe" \
                     --description "Debugging helpers." \
                     --file ${./lib/describe.nix}
+
+                  echo
+
+                  nixdoc --category "apps" \
+                    --description "Convenience app wrappers." \
+                    --file ${./lib/apps.nix}
                 } > $out
               '';
 
