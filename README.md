@@ -351,10 +351,10 @@ nix flake check
 A devshell with the project's tooling is available:
 
 ```
-nix develop              # enter devshell (nix-unit, nixdoc, nixd, treefmt)
-nix flake check          # run all checks (tests, formatting, API doc drift)
-nix fmt                  # format the tree
-scripts/gen-api-docs.sh  # regenerate API.md after editing lib doc comments
+nix develop                                # enter devshell (nix-unit, nixdoc, nixd, treefmt)
+nix flake check                            # run all checks (tests, formatting, API doc drift)
+nix fmt                                    # format the tree
+nix build .#api-docs && cp result API.md   # regenerate API.md after editing lib doc comments
 ```
 
 ## License
