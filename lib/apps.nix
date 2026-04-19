@@ -22,7 +22,6 @@
     apps.${system}.bake = bake.lib.mkBakeApp {
       inherit pkgs;
       module = scope.modules.app;
-      name = "app";
     };
     ```
   */
