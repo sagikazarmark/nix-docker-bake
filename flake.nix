@@ -26,16 +26,40 @@
 
   outputs =
     inputs@{ flake-parts, ... }:
+    let
+      bakeLib = import ./lib { };
+    in
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
 
       imports = [
-        ./nix/lib.nix
-        ./nix/overlay.nix
-        ./nix/treefmt.nix
+        inputs.treefmt-nix.flakeModule
+
         ./nix/devshell.nix
         ./nix/checks.nix
-        ./nix/templates.nix
       ];
+
+      flake = {
+        lib = bakeLib;
+
+        overlays.default = _final: _prev: {
+          bake = {
+            lib = bakeLib;
+          };
+        };
+
+        templates.default = {
+          path = ./templates/default;
+          description = "A minimal docker-bake project using nix-docker-bake";
+        };
+      };
+
+      perSystem = _: {
+        treefmt = {
+          projectRootFile = "flake.nix";
+
+          programs.nixfmt.enable = true;
+        };
+      };
     };
 }
