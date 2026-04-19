@@ -66,7 +66,7 @@ let
   # lib.extend
   libExtendedScope = scope1.lib.extend (final: prev: { myConfigValue = "lib-extended"; });
 
-  # callBake shallow isolation: overriding a config value when resolving one
+  # callModule shallow isolation: overriding a config value when resolving one
   # module must not affect sibling modules that read the same value.
   sharedA = builtins.toFile "shallow-a.nix" ''
     { lib, shared, ... }:
@@ -90,7 +90,7 @@ let
     };
   };
   # Re-resolve only `a` with an override.
-  aOverridden = shallowScope.lib.callBake sharedA { shared = "overridden"; };
+  aOverridden = shallowScope.lib.callModule sharedA { shared = "overridden"; };
 
   scopeOverridden = scope1.override { myConfigValue = "overridden-via-override"; };
 
@@ -436,7 +436,7 @@ in
 
   # lib.extend on a scope with a module that reads a scope config key: the
   # forked module's args reflect the overlay's value, confirming the overlay
-  # propagates through callBake's auto-injection.
+  # propagates through callModule's auto-injection.
   testLibExtendPropagatesToForkedModuleArgs = {
     expr = cwsMkCtxForked.targets.t.args.VAL;
     expected = "overridden";
@@ -513,7 +513,7 @@ in
     expected = "hello";
   };
 
-  # ---------- callBake shallow isolation ----------
+  # ---------- callModule shallow isolation ----------
 
   # The re-resolved module sees the override.
   testCallBakeAppliesOverride = {
@@ -533,7 +533,7 @@ in
     expected = "base";
   };
 
-  # callBake's result is itself overridable: the API doc lists callBake
+  # callModule's result is itself overridable: the API doc lists callModule
   # alongside scope.<name> as a source of overridable modules.
   testCallBakeResultIsOverridable = {
     expr = (aOverridden.override { shared = "twice-overridden"; }).targets.t.args.VAL;
