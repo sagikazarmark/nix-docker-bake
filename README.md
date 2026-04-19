@@ -332,14 +332,6 @@ Modules currently tolerate unknown keys but may reject them in a future release,
 
 The full function reference lives in [API.md](API.md).
 
-## Testing
-
-Unit tests and integration fixtures live under `tests/` and run as part of `nix flake check`:
-
-```bash
-nix flake check
-```
-
 ## Limitations
 
 - The generated JSON contains absolute Nix store paths, so it should not be committed; regenerate it via `nix build` on each use.
