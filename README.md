@@ -27,7 +27,7 @@ In HCL you either fork the targets or drive everything through command-line vars
 With this library it's a function call:
 
 ```nix
-devApp = lib.callBake ./app/bake.nix { appVersion = "v2.0.0"; };
+devApp = lib.callModule ./app/bake.nix { appVersion = "v2.0.0"; };
 # Other images keep their original values
 ```
 
@@ -221,21 +221,21 @@ Choose based on how far you want the change to propagate:
 | You want to... | Use |
 |---|---|
 | Swap a single arg on a module already in the scope | `scope.<name>.override { arg = ...; }` |
-| Override a dep in one module, leave siblings alone | `lib.callBake path { dep = ...; }` |
+| Override a dep in one module, leave siblings alone | `lib.callModule path { dep = ...; }` |
 | Replace a config value everywhere in the scope | `(lib.override { key = ...; }).modules.<name>` |
 | Same, with access to prior values (overlay form) | `(lib.extend (final: prev: { key = ...; })).modules.<name>` |
-| Override a value in some transitive deps but not others | `lib.callBake path { ...; dep = lib.callBake ../dep.nix { ... }; }` (selective) |
+| Override a value in some transitive deps but not others | `lib.callModule path { ...; dep = lib.callModule ../dep.nix { ... }; }` (selective) |
 
-### Shallow override (`callBake`)
+### Shallow override (`callModule`)
 
-`callBake path overrides` resolves the module at `path` with its function arguments auto-injected from the scope.
+`callModule path overrides` resolves the module at `path` with its function arguments auto-injected from the scope.
 Anything you pass in `overrides` replaces the corresponding scope value for that single resolution.
 Sibling modules, and the rest of the scope, are unaffected.
 
 ```nix
 # Re-resolve app with a different version. Other modules in the scope
 # keep their original values.
-customApp = lib.callBake ./app/bake.nix {
+customApp = lib.callModule ./app/bake.nix {
   appVersion = "v2.0.0";
 };
 ```
@@ -263,7 +263,7 @@ The same pair is available on the scope value itself: use `scope.extend` / `scop
 ### Selective propagation (the interesting case)
 
 Often neither extreme is right: you want the override to flow through *some* transitive deps but not others.
-This is natural with `callBake` by passing already-overridden deps as explicit arguments:
+This is natural with `callModule` by passing already-overridden deps as explicit arguments:
 
 ```nix
 # Goal: app and its base dep should upgrade to v2.0.0. But other modules
@@ -271,16 +271,16 @@ This is natural with `callBake` by passing already-overridden deps as explicit a
 # only as a metadata label) should stay pinned.
 #
 # Strategy: re-resolve base with the new version, then pass it explicitly
-# when re-resolving app. callBake only touches the module being resolved,
+# when re-resolving app. callModule only touches the module being resolved,
 # so anything not passed resolves from the base scope at the original
 # value.
 
 { lib, ... }:
 let
-  base' = lib.callBake ./base/bake.nix {
+  base' = lib.callModule ./base/bake.nix {
     appVersion = "v2.0.0";
   };
-  app' = lib.callBake ./app/bake.nix {
+  app' = lib.callModule ./app/bake.nix {
     appVersion = "v2.0.0";
     base = base';
   };

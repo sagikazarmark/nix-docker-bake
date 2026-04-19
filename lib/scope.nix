@@ -21,7 +21,7 @@ let
     ```
   */
   # Build a fixed-point scope function from consumer-supplied config and module paths.
-  # config: opaque attrset; values flow to modules via callBake auto-injection.
+  # config: opaque attrset; values flow to modules via callModule auto-injection.
   # modules: attrset of `name -> path-to-bake.nix`.
   mkScope =
     {
@@ -47,7 +47,7 @@ let
           # Fork the scope with an overlay and return the forked scope.
           # Consumers typically access `.modules.<name>` on the result to
           # pull in a specific module resolved under the fork. Transitive
-          # callBake calls inside the resolved module see the overlay.
+          # callModule calls inside the resolved module see the overlay.
           extend = overlay: nixLib.fix (nixLib.extends overlay scopeFn);
 
           # Plain-attrs sugar over extend. Use this when you just want to
@@ -88,11 +88,11 @@ let
             # Library primitives exposed for module consumption.
             inherit (core) mkTarget mkContext mkContextWith;
 
-            # callBake: auto-inject function arguments from the scope, allow overrides.
+            # callModule: auto-inject function arguments from the scope, allow overrides.
             # The returned module carries `.override`: a per-instance argument
             # swap that re-runs the module function with new args, leaving the
             # scope and sibling modules untouched. Mirrors nixpkgs `pkg.override`.
-            callBake =
+            callModule =
               modulePath: overrides:
               let
                 fn = import modulePath;
@@ -117,7 +117,7 @@ let
 
           inherit extend override;
         }
-        // builtins.mapAttrs (_: modulePath: libFunctions.callBake modulePath { }) modules
+        // builtins.mapAttrs (_: modulePath: libFunctions.callModule modulePath { }) modules
         // {
           modules = builtins.mapAttrs (name: _: self.${name}) modules;
         };
