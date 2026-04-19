@@ -332,14 +332,6 @@ Modules currently tolerate unknown keys but may reject them in a future release,
 
 The full function reference lives in [API.md](API.md).
 
-## Testing
-
-Unit tests and integration fixtures live under `tests/` and run as part of `nix flake check`:
-
-```bash
-nix flake check
-```
-
 ## Limitations
 
 - The generated JSON contains absolute Nix store paths, so it should not be committed; regenerate it via `nix build` on each use.
@@ -351,10 +343,10 @@ nix flake check
 A devshell with the project's tooling is available:
 
 ```
-nix develop              # enter devshell (nix-unit, nixdoc, nixd, treefmt)
-nix flake check          # run all checks (tests, formatting, API doc drift)
-nix fmt                  # format the tree
-scripts/gen-api-docs.sh  # regenerate API.md after editing lib doc comments
+nix develop                                # enter devshell (nix-unit, nixdoc, nixd, treefmt)
+nix flake check                            # run all checks (tests, formatting, API doc drift)
+nix fmt                                    # format the tree
+nix build .#api-docs && cp result API.md   # regenerate API.md after editing lib doc comments
 ```
 
 ## License
