@@ -35,7 +35,6 @@
       imports = [
         inputs.treefmt-nix.flakeModule
 
-        ./nix/devshell.nix
         ./nix/checks.nix
       ];
 
@@ -54,12 +53,30 @@
         };
       };
 
-      perSystem = _: {
-        treefmt = {
-          projectRootFile = "flake.nix";
+      perSystem =
+        {
+          pkgs,
+          config,
+          inputs',
+          ...
+        }:
+        {
+          treefmt = {
+            projectRootFile = "flake.nix";
 
-          programs.nixfmt.enable = true;
+            programs.nixfmt.enable = true;
+          };
+
+          devShells.default = pkgs.mkShellNoCC {
+            packages = [
+              config.treefmt.build.wrapper
+
+              pkgs.nixd
+              pkgs.nixdoc
+
+              inputs'.nix-unit.packages.default
+            ];
+          };
         };
-      };
     };
 }
