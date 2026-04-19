@@ -121,10 +121,11 @@ Or wire an `apps` output with `mkBakeApp` and collapse it into a single command:
 
 ```nix
 # inside flake.nix outputs, next to packages.<system>.bakeFile
+# pkgs is a let-bound `nixpkgs.legacyPackages.${system}`;
+# see templates/default/flake.nix for the full wiring.
 apps.${system}.bake = bake.lib.mkBakeApp {
   inherit pkgs;
   module = scope.modules.hello;
-  name = "hello";
 };
 ```
 
